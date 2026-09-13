@@ -1,0 +1,18 @@
+name: obs2vmix branch build
+run-name: ${{ github.ref_name }} obs2vmix build 🎛️
+# master is built by push.yaml (upstream OBS workflow, produces DMG / Windows / Ubuntu packages).
+# This one gives the same full build to our feature branches, so nothing merges to master unbuilt.
+on:
+  push:
+    branches:
+      - 'obs2vmix/**'
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build-project:
+    name: Build 🧱
+    uses: ./.github/workflows/build-project.yaml
+    secrets: inherit
