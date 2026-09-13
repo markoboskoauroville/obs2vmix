@@ -27,6 +27,16 @@
 #include <slider-ignorewheel.hpp>
 
 #include <QToolTip>
+#include <QApplication>
+#include <QShortcut>
+#include <QLineEdit>
+#include <QTextEdit>
+#include <QPlainTextEdit>
+#include <QAbstractSpinBox>
+#include <QAbstractButton>
+
+#include <algorithm>
+#include <cmath>
 
 void OBSBasic::CreateProgramDisplay()
 {
@@ -75,8 +85,10 @@ void OBSBasic::CreateProgramOptions()
 	QHBoxLayout *mainButtonLayout = new QHBoxLayout();
 	mainButtonLayout->setSpacing(2);
 
-	transitionButton = new QPushButton(QTStr("Transition"));
+	transitionButton = new QPushButton(QTStr("obs2vmix.Take"));
 	transitionButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+	transitionButton->setProperty("class", "obs2vmix-take");
+	transitionButton->setToolTip(QTStr("obs2vmix.TakeTT"));
 
 	QHBoxLayout *quickTransitionsLayout = new QHBoxLayout();
 	quickTransitionsLayout->setSpacing(2);
@@ -103,12 +115,29 @@ void OBSBasic::CreateProgramOptions()
 	connect(tBar, &QSlider::sliderReleased, this, &OBSBasic::TBarReleased);
 
 	layout->addStretch(0);
+	CreateSeamControls(layout);
 	layout->addLayout(mainButtonLayout);
 	layout->addLayout(quickTransitionsLayout);
 	layout->addWidget(tBar);
 	layout->addStretch(0);
 
 	programOptions->setLayout(layout);
+
+	/* Space = Take, Enter = Cut, while the main window is active and no
+	 * text field or button has the focus. Parented to programOptions so
+	 * the shortcuts die with studio mode. */
+	QShortcut *takeKey = new QShortcut(QKeySequence(Qt::Key_Space), programOptions, nullptr, nullptr,
+					   Qt::WindowShortcut);
+	connect(takeKey, &QShortcut::activated, this, [this]() {
+		if (SeamKeyIsFree())
+			SeamTake();
+	});
+	QShortcut *cutKey = new QShortcut(QKeySequence(Qt::Key_Return), programOptions, nullptr, nullptr,
+					  Qt::WindowShortcut);
+	connect(cutKey, &QShortcut::activated, this, [this]() {
+		if (SeamKeyIsFree())
+			SeamCut();
+	});
 
 	auto onAdd = [this]() {
 		QScopedPointer<QMenu> menu(CreateTransitionMenu(this, nullptr));
@@ -180,6 +209,173 @@ void OBSBasic::TogglePreviewProgramMode()
 {
 	SetPreviewProgramMode(!IsPreviewProgramMode());
 }
+
+/* ---------------------------------------------------------------------- */
+/* obs2vmix: the seam                                                      */
+
+static const int SEAM_UNIT_FRAMES = 0;
+static const int SEAM_UNIT_SECONDS = 1;
+static const int SEAM_UNIT_MS = 2;
+
+static double SeamFps()
+{
+	struct obs_video_info ovi;
+	if (obs_get_video_info(&ovi) && ovi.fps_den > 0 && ovi.fps_num > 0)
+		return (double)ovi.fps_num / (double)ovi.fps_den;
+	return 30.0;
+}
+
+void OBSBasic::CreateSeamControls(QBoxLayout *layout)
+{
+	seamTransitions = new QComboBox();
+	seamTransitions->setModel(ui->transitions->model());
+	seamTransitions->setToolTip(QTStr("Transition"));
+	seamTransitions->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+
+	QHBoxLayout *lengthLayout = new QHBoxLayout();
+	lengthLayout->setSpacing(2);
+
+	seamDuration = new QSpinBox();
+	seamDuration->setRange(1, 20000);
+	seamDuration->setAccelerated(true);
+	seamDuration->setToolTip(QTStr("Basic.TransitionDuration"));
+
+	seamUnit = new QComboBox();
+	seamUnit->addItem(QTStr("obs2vmix.Unit.Frames"), SEAM_UNIT_FRAMES);
+	seamUnit->addItem(QTStr("obs2vmix.Unit.Seconds"), SEAM_UNIT_SECONDS);
+	seamUnit->addItem(QTStr("obs2vmix.Unit.Ms"), SEAM_UNIT_MS);
+	seamUnit->setCurrentIndex(SEAM_UNIT_FRAMES);
+
+	lengthLayout->addWidget(seamDuration);
+	lengthLayout->addWidget(seamUnit);
+
+	QPushButton *cutButton = new QPushButton(QTStr("obs2vmix.Cut"));
+	cutButton->setToolTip(QTStr("obs2vmix.CutTT"));
+	cutButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+
+	layout->addWidget(seamTransitions);
+	layout->addLayout(lengthLayout);
+	layout->addWidget(cutButton);
+
+	/* the dock's combo and this one share a model; keep the selection in step */
+	connect(seamTransitions, &QComboBox::currentIndexChanged, this, [this](int idx) {
+		if (idx < 0 || !seamTransitions)
+			return;
+		SetCurrentTransition(seamTransitions->itemData(idx).toString());
+	});
+	connect(this, &OBSBasic::CurrentTransitionChanged, this, &OBSBasic::SeamSyncTransition);
+	connect(this, &OBSBasic::TransitionDurationChanged, this, &OBSBasic::SeamSyncDuration);
+	connect(seamDuration, &QSpinBox::valueChanged, this, &OBSBasic::SeamDurationEdited);
+	connect(seamUnit, &QComboBox::currentIndexChanged, this, &OBSBasic::SeamSyncDuration);
+	connect(cutButton, &QAbstractButton::clicked, this, &OBSBasic::SeamCut);
+
+	SeamSyncTransition();
+	SeamSyncDuration();
+}
+
+void OBSBasic::SeamSyncTransition()
+{
+	if (!seamTransitions)
+		return;
+
+	int idx = seamTransitions->findData(QString::fromStdString(currentTransitionUuid));
+	if (idx != -1 && idx != seamTransitions->currentIndex()) {
+		QSignalBlocker sb(seamTransitions);
+		seamTransitions->setCurrentIndex(idx);
+	}
+
+	OBSSource tr = GetCurrentTransition();
+	bool fixed = tr ? obs_transition_fixed(tr) : false;
+	if (seamDuration)
+		seamDuration->setEnabled(!fixed);
+	if (seamUnit)
+		seamUnit->setEnabled(!fixed);
+}
+
+/* engine → box: show the engine's milliseconds in the chosen unit */
+void OBSBasic::SeamSyncDuration()
+{
+	if (!seamDuration || !seamUnit)
+		return;
+
+	int ms = GetTransitionDuration();
+	int unit = seamUnit->currentData().toInt();
+	int shown;
+
+	if (unit == SEAM_UNIT_FRAMES) {
+		shown = (int)std::lround(ms * SeamFps() / 1000.0);
+		seamDuration->setSingleStep(1);
+		seamDuration->setSuffix("");
+	} else if (unit == SEAM_UNIT_SECONDS) {
+		/* the box is an integer box: seconds are shown in tenths */
+		shown = (int)std::lround(ms / 100.0);
+		seamDuration->setSingleStep(1);
+		seamDuration->setSuffix(QStringLiteral(" /10"));
+	} else {
+		shown = ms;
+		seamDuration->setSingleStep(50);
+		seamDuration->setSuffix(QStringLiteral(" ms"));
+	}
+
+	QSignalBlocker sb(seamDuration);
+	seamDuration->setValue(std::max(1, shown));
+}
+
+/* box → engine: the engine works in milliseconds */
+void OBSBasic::SeamDurationEdited()
+{
+	if (!seamDuration || !seamUnit)
+		return;
+
+	int v = seamDuration->value();
+	int unit = seamUnit->currentData().toInt();
+	int ms;
+
+	if (unit == SEAM_UNIT_FRAMES)
+		ms = (int)std::lround(v * 1000.0 / SeamFps());
+	else if (unit == SEAM_UNIT_SECONDS)
+		ms = v * 100;
+	else
+		ms = v;
+
+	SetTransitionDuration(ms);
+	/* SetTransitionDuration clamps to 50..20000 and stays silent when the
+	 * value did not change; show what the engine really has */
+	SeamSyncDuration();
+}
+
+void OBSBasic::SeamTake()
+{
+	TransitionClicked();
+}
+
+/* Cut: run the built-in cut transition once, then fall back to the chosen one */
+void OBSBasic::SeamCut()
+{
+	if (!IsPreviewProgramMode())
+		return;
+
+	if (cutTransition && GetCurrentTransition().Get() != cutTransition) {
+		OverrideTransition(cutTransition);
+		overridingTransition = true;
+	}
+
+	TransitionToScene(GetCurrentSceneSource(), false, true, 0, false, false);
+}
+
+/* true when the keyboard focus is somewhere Space/Enter would not be typed */
+bool OBSBasic::SeamKeyIsFree()
+{
+	QWidget *w = QApplication::focusWidget();
+	if (!w)
+		return true;
+	if (qobject_cast<QLineEdit *>(w) || qobject_cast<QTextEdit *>(w) || qobject_cast<QPlainTextEdit *>(w) ||
+	    qobject_cast<QAbstractSpinBox *>(w) || qobject_cast<QAbstractButton *>(w) || qobject_cast<QComboBox *>(w))
+		return false;
+	return true;
+}
+
+/* ---------------------------------------------------------------------- */
 
 void OBSBasic::SetPreviewProgramMode(bool enabled)
 {

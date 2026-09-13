@@ -1493,6 +1493,18 @@ private:
 	QPointer<QPushButton> transitionButton;
 	QPointer<QMenu> perSceneTransitionMenu;
 
+	/* obs2vmix: transition controls on the seam between Source and Record */
+	QPointer<QComboBox> seamTransitions;
+	QPointer<QSpinBox> seamDuration;
+	QPointer<QComboBox> seamUnit;
+	void CreateSeamControls(QBoxLayout *layout);
+	void SeamSyncTransition();
+	void SeamSyncDuration();
+	void SeamDurationEdited();
+	void SeamCut();
+	void SeamTake();
+	static bool SeamKeyIsFree();
+
 	std::unordered_map<std::string, OBSSource> transitions;
 	// FIXME: Any code accessing this collection relies on order of insertion
 	std::vector<std::string> transitionUuids;
