@@ -31,7 +31,7 @@ MasterChain::MasterChain()
 MasterChain::~MasterChain()
 {
 	Remove();
-	for (Slot &s : slots)
+	for (Slot &s : chainSlots)
 		s.plugin.reset();
 }
 
@@ -58,37 +58,37 @@ void MasterChain::Remove()
 bool MasterChain::IsEmpty(int i) const
 {
 	std::lock_guard<std::mutex> lock(mutex);
-	return i < 0 || i >= SLOTS || !slots[i].plugin;
+	return i < 0 || i >= SLOTS || !chainSlots[i].plugin;
 }
 
 std::string MasterChain::SlotPath(int i) const
 {
 	std::lock_guard<std::mutex> lock(mutex);
-	return (i >= 0 && i < SLOTS) ? slots[i].path : std::string();
+	return (i >= 0 && i < SLOTS) ? chainSlots[i].path : std::string();
 }
 
 std::string MasterChain::SlotName(int i) const
 {
 	std::lock_guard<std::mutex> lock(mutex);
-	return (i >= 0 && i < SLOTS) ? slots[i].name : std::string();
+	return (i >= 0 && i < SLOTS) ? chainSlots[i].name : std::string();
 }
 
 bool MasterChain::SlotOn(int i) const
 {
 	std::lock_guard<std::mutex> lock(mutex);
-	return (i >= 0 && i < SLOTS) ? slots[i].on : false;
+	return (i >= 0 && i < SLOTS) ? chainSlots[i].on : false;
 }
 
 float MasterChain::SlotMix(int i) const
 {
 	std::lock_guard<std::mutex> lock(mutex);
-	return (i >= 0 && i < SLOTS) ? slots[i].mix : 1.0f;
+	return (i >= 0 && i < SLOTS) ? chainSlots[i].mix : 1.0f;
 }
 
 VSTPlugin *MasterChain::Plugin(int i)
 {
 	std::lock_guard<std::mutex> lock(mutex);
-	return (i >= 0 && i < SLOTS) ? slots[i].plugin.get() : nullptr;
+	return (i >= 0 && i < SLOTS) ? chainSlots[i].plugin.get() : nullptr;
 }
 
 /* loading happens outside the lock: a plugin can take a while to come up
@@ -113,10 +113,10 @@ bool MasterChain::SetPlugin(int i, const std::string &path, const std::string &n
 	std::unique_ptr<VSTPlugin> old;
 	{
 		std::lock_guard<std::mutex> lock(mutex);
-		old = std::move(slots[i].plugin);
-		slots[i].plugin = std::move(plugin);
-		slots[i].path = path;
-		slots[i].name = name.empty() ? plugin_name_fallback(path) : name;
+		old = std::move(chainSlots[i].plugin);
+		chainSlots[i].plugin = std::move(plugin);
+		chainSlots[i].path = path;
+		chainSlots[i].name = name.empty() ? plugin_name_fallback(path) : name;
 	}
 	old.reset();
 	return true;
@@ -129,11 +129,11 @@ void MasterChain::ClearSlot(int i)
 	std::unique_ptr<VSTPlugin> old;
 	{
 		std::lock_guard<std::mutex> lock(mutex);
-		old = std::move(slots[i].plugin);
-		slots[i].path.clear();
-		slots[i].name.clear();
-		slots[i].on = true;
-		slots[i].mix = 1.0f;
+		old = std::move(chainSlots[i].plugin);
+		chainSlots[i].path.clear();
+		chainSlots[i].name.clear();
+		chainSlots[i].on = true;
+		chainSlots[i].mix = 1.0f;
 	}
 	old.reset();
 }
@@ -142,14 +142,14 @@ void MasterChain::SetOn(int i, bool on)
 {
 	std::lock_guard<std::mutex> lock(mutex);
 	if (i >= 0 && i < SLOTS)
-		slots[i].on = on;
+		chainSlots[i].on = on;
 }
 
 void MasterChain::SetMix(int i, float mix)
 {
 	std::lock_guard<std::mutex> lock(mutex);
 	if (i >= 0 && i < SLOTS)
-		slots[i].mix = std::clamp(mix, 0.0f, 1.0f);
+		chainSlots[i].mix = std::clamp(mix, 0.0f, 1.0f);
 }
 
 void MasterChain::Move(int from, int to)
@@ -157,15 +157,15 @@ void MasterChain::Move(int from, int to)
 	if (from < 0 || from >= SLOTS || to < 0 || to >= SLOTS || from == to)
 		return;
 	std::lock_guard<std::mutex> lock(mutex);
-	Slot tmp = std::move(slots[from]);
+	Slot tmp = std::move(chainSlots[from]);
 	if (from < to) {
 		for (int i = from; i < to; i++)
-			slots[i] = std::move(slots[i + 1]);
+			chainSlots[i] = std::move(chainSlots[i + 1]);
 	} else {
 		for (int i = from; i > to; i--)
-			slots[i] = std::move(slots[i - 1]);
+			chainSlots[i] = std::move(chainSlots[i - 1]);
 	}
-	slots[to] = std::move(tmp);
+	chainSlots[to] = std::move(tmp);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -177,7 +177,7 @@ OBSDataAutoRelease MasterChain::Save() const
 	OBSDataArrayAutoRelease arr = obs_data_array_create();
 
 	std::lock_guard<std::mutex> lock(mutex);
-	for (const Slot &s : slots) {
+	for (const Slot &s : chainSlots) {
 		OBSDataAutoRelease item = obs_data_create();
 		obs_data_set_string(item, "path", s.path.c_str());
 		obs_data_set_string(item, "name", s.name.c_str());
@@ -261,7 +261,7 @@ void MasterChain::Process(size_t mix_idx, float **data, size_t channels, size_t 
 	channels = std::min<size_t>(channels, MAX_AUDIO_CHANNELS);
 	frames = std::min<size_t>(frames, AUDIO_OUTPUT_FRAMES);
 
-	for (Slot &s : slots) {
+	for (Slot &s : chainSlots) {
 		if (!s.plugin || !s.on || !s.plugin->vstLoaded())
 			continue;
 		float mix = s.mix;

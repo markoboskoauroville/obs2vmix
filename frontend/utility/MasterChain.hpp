@@ -76,7 +76,7 @@ private:
 	void Process(size_t mix_idx, float **data, size_t channels, size_t frames);
 
 	mutable std::mutex mutex;
-	std::array<Slot, SLOTS> slots;
+	std::array<Slot, SLOTS> chainSlots;
 	std::atomic<int> apply{0};
 	std::atomic<bool> bypass{false};
 	std::atomic<uint32_t> recordTracks{1};
