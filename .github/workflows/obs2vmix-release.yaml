@@ -89,6 +89,7 @@ jobs:
             local dest="$1"; shift
             local f
             for f in "$@"; do
+              [[ -f "${f}" ]] || continue   # the artifact folder can carry the same name as the file inside it
               mv -v "${f}" "${out}/${dest}"
               return
             done
