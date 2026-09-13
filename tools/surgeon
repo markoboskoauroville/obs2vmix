@@ -1,0 +1,437 @@
+#!/usr/bin/env python3
+"""surgeon - edit single files of a GitHub repo without cloning it.
+
+Pulls individual files out of a repository through the GitHub API, keeps a
+pristine copy for diffing, and pushes the edited files back as one real commit
+using the Git Data API (blob -> tree -> commit -> ref).  Nothing but the files
+you ask for ever lands on this machine.
+
+    surgeon init [OWNER/REPO] [BRANCH]   set target (default obs2vmix, master)
+    surgeon ls   [DIR]                   list a directory in the repo
+    surgeon find QUERY                   search upstream obs-studio code for QUERY
+    surgeon show PATH                    print a file, keep nothing
+    surgeon get  PATH...                 fetch files into src/ for editing
+    surgeon new  PATH                    register a brand-new file under src/
+    surgeon rm   PATH                    mark a fetched file for deletion
+    surgeon revert PATH...               throw away local edits
+    surgeon status                       what would be pushed
+    surgeon diff [PATH...]               unified diff, pristine vs edited
+    surgeon push -m MSG [--force]        commit + push all changes in one commit
+    surgeon branch NAME                  create NAME from current head and switch to it
+    surgeon sync                         re-fetch pristine copies (drops edits!)
+
+Layout (all inside the directory holding this script):
+    src/<path>                 the files you edit
+    .surgeon/orig/<path>       pristine copies, as fetched
+    .surgeon/state.json        target repo/branch + blob sha of every fetched file
+"""
+import base64
+import urllib.parse
+import difflib
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+SRC = os.path.join(ROOT, "src")
+META = os.path.join(ROOT, ".surgeon")
+ORIG = os.path.join(META, "orig")
+STATE = os.path.join(META, "state.json")
+
+DEFAULT_REPO = "markoboskoauroville/obs2vmix"
+DEFAULT_BRANCH = "master"
+UPSTREAM = "obsproject/obs-studio"   # forks are not code-search indexed; search here
+
+
+# ----------------------------------------------------------------- helpers --
+def die(msg, code=1):
+    print("surgeon: " + msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def gh(*args, input_json=None, raw=False, ok404=False):
+    """Run `gh api ...`.  Returns parsed JSON, raw bytes, or None on 404."""
+    cmd = ["gh", "api"] + list(args)
+    if raw:
+        cmd += ["-H", "Accept: application/vnd.github.raw"]
+    data = None
+    if input_json is not None:
+        cmd += ["--input", "-"]
+        data = json.dumps(input_json).encode()
+    p = subprocess.run(cmd, input=data, capture_output=True)
+    if p.returncode != 0:
+        err = p.stderr.decode(errors="replace").strip()
+        if ok404 and ("HTTP 404" in err or "Not Found" in err):
+            return None
+        die("gh api %s failed:\n%s" % (args[0], err or p.stdout.decode(errors="replace")))
+    return p.stdout if raw else json.loads(p.stdout or b"null")
+
+
+def load_state():
+    if not os.path.exists(STATE):
+        die("not initialised - run `surgeon init` first")
+    with open(STATE) as f:
+        return json.load(f)
+
+
+def save_state(st):
+    os.makedirs(META, exist_ok=True)
+    tmp = STATE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(st, f, indent=2, sort_keys=True)
+    os.replace(tmp, STATE)
+
+
+def norm(path):
+    path = path.strip().lstrip("./")
+    if path.startswith("src/"):
+        path = path[4:]
+    if not path or ".." in path.split("/"):
+        die("bad path: %r" % path)
+    return path
+
+
+def read(p):
+    with open(p, "rb") as f:
+        return f.read()
+
+
+def write(p, data):
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "wb") as f:
+        f.write(data)
+
+
+def blob_sha(data):
+    """Git's blob sha1, so we can tell 'edited' from 'untouched' offline."""
+    import hashlib
+    h = hashlib.sha1()
+    h.update(b"blob %d\0" % len(data))
+    h.update(data)
+    return h.hexdigest()
+
+
+def remote_file_sha(st, path):
+    """Current blob sha of PATH at the branch head, or None if absent."""
+    r = gh("repos/%s/contents/%s?ref=%s" % (st["repo"], path, st["branch"]), ok404=True)
+    if r is None or isinstance(r, list):
+        return None
+    return r["sha"]
+
+
+def fetch_file(st, path):
+    meta = gh("repos/%s/contents/%s?ref=%s" % (st["repo"], path, st["branch"]), ok404=True)
+    if meta is None:
+        die("%s: not found on %s@%s" % (path, st["repo"], st["branch"]))
+    if isinstance(meta, list):
+        die("%s is a directory - use `surgeon ls %s`" % (path, path))
+    if meta.get("type") != "file":
+        die("%s is a %s, not a file" % (path, meta.get("type")))
+    if meta.get("encoding") == "base64" and meta.get("content"):
+        data = base64.b64decode(meta["content"])
+    else:  # >1 MB: contents API omits the body, fetch the blob raw
+        data = gh("repos/%s/git/blobs/%s" % (st["repo"], meta["sha"]), raw=True)
+    return meta["sha"], data
+
+
+def classify(st):
+    """Return list of (path, kind) where kind in modified/new/deleted/clean."""
+    out = []
+    files = st.setdefault("files", {})
+    for path, rec in sorted(files.items()):
+        s = os.path.join(SRC, path)
+        if rec.get("deleted"):
+            out.append((path, "deleted"))
+        elif rec.get("new"):
+            out.append((path, "new" if os.path.exists(s) else "missing"))
+        elif not os.path.exists(s):
+            out.append((path, "missing"))
+        elif blob_sha(read(s)) != rec["sha"]:
+            out.append((path, "modified"))
+        else:
+            out.append((path, "clean"))
+    return out
+
+
+# ---------------------------------------------------------------- commands --
+def cmd_init(args):
+    repo = args[0] if args else DEFAULT_REPO
+    branch = args[1] if len(args) > 1 else DEFAULT_BRANCH
+    info = gh("repos/%s/branches/%s" % (repo, branch), ok404=True)
+    if info is None:
+        die("branch %s not found on %s" % (branch, repo))
+    st = {"repo": repo, "branch": branch, "files": {}}
+    if os.path.exists(STATE):
+        old = load_state()
+        st["files"] = old.get("files", {})
+    save_state(st)
+    os.makedirs(SRC, exist_ok=True)
+    os.makedirs(ORIG, exist_ok=True)
+    print("target: %s @ %s (head %s)" % (repo, branch, info["commit"]["sha"][:10]))
+
+
+def cmd_ls(args):
+    st = load_state()
+    path = norm(args[0]) if args else ""
+    url = "repos/%s/contents/%s?ref=%s" % (st["repo"], path, st["branch"])
+    r = gh(url.replace("contents/?", "contents?"), ok404=True)
+    if r is None:
+        die("%s: not found" % path)
+    if not isinstance(r, list):
+        r = [r]
+    for e in sorted(r, key=lambda e: (e["type"] != "dir", e["name"])):
+        tag = "/" if e["type"] == "dir" else ""
+        size = "" if e["type"] == "dir" else "%8d" % e["size"]
+        print("%-9s %s%s" % (size, e["path"], tag))
+
+
+def cmd_find(args):
+    if not args:
+        die("usage: surgeon find QUERY")
+    q = " ".join(args)
+    r = gh("search/code?q=%s&per_page=50" % urllib.parse.quote(q + " repo:" + UPSTREAM))
+    print("%d hits in %s (fork is not indexed; paths are identical)" % (r["total_count"], UPSTREAM))
+    for it in r["items"]:
+        print("  " + it["path"])
+
+
+def cmd_show(args):
+    st = load_state()
+    for a in args:
+        _, data = fetch_file(st, norm(a))
+        sys.stdout.buffer.write(data)
+
+
+def cmd_get(args):
+    st = load_state()
+    if not args:
+        die("usage: surgeon get PATH...")
+    for a in args:
+        path = norm(a)
+        s = os.path.join(SRC, path)
+        rec = st["files"].get(path)
+        if rec and os.path.exists(s) and blob_sha(read(s)) != rec.get("sha"):
+            die("%s has local edits - `surgeon revert` or `surgeon push` first" % path)
+        sha, data = fetch_file(st, path)
+        write(os.path.join(ORIG, path), data)
+        write(s, data)
+        st["files"][path] = {"sha": sha}
+        print("fetched %s  (%d bytes, blob %s)" % (path, len(data), sha[:10]))
+    save_state(st)
+
+
+def cmd_new(args):
+    st = load_state()
+    for a in args:
+        path = norm(a)
+        if path in st["files"] and not st["files"][path].get("new"):
+            die("%s already tracked" % path)
+        if remote_file_sha(st, path):
+            die("%s exists in the repo - use `surgeon get`" % path)
+        s = os.path.join(SRC, path)
+        if not os.path.exists(s):
+            write(s, b"")
+        st["files"][path] = {"new": True, "sha": None}
+        print("new %s -> edit %s" % (path, os.path.relpath(s, ROOT)))
+    save_state(st)
+
+
+def cmd_rm(args):
+    st = load_state()
+    for a in args:
+        path = norm(a)
+        rec = st["files"].get(path)
+        if rec is None:
+            sha = remote_file_sha(st, path)
+            if sha is None:
+                die("%s not in repo" % path)
+            rec = st["files"][path] = {"sha": sha}
+        if rec.get("new"):
+            del st["files"][path]
+        else:
+            rec["deleted"] = True
+        s = os.path.join(SRC, path)
+        if os.path.exists(s):
+            os.remove(s)
+        print("marked for deletion: %s" % path)
+    save_state(st)
+
+
+def cmd_revert(args):
+    st = load_state()
+    for a in args:
+        path = norm(a)
+        rec = st["files"].get(path)
+        if rec is None:
+            die("%s not tracked" % path)
+        if rec.get("new"):
+            s = os.path.join(SRC, path)
+            if os.path.exists(s):
+                os.remove(s)
+            del st["files"][path]
+        else:
+            rec.pop("deleted", None)
+            write(os.path.join(SRC, path), read(os.path.join(ORIG, path)))
+        print("reverted %s" % path)
+    save_state(st)
+
+
+def cmd_status(args):
+    st = load_state()
+    print("target: %s @ %s" % (st["repo"], st["branch"]))
+    rows = classify(st)
+    if not rows:
+        print("no files fetched")
+    for path, kind in rows:
+        print("  %-9s %s" % (kind, path))
+
+
+def cmd_diff(args):
+    st = load_state()
+    want = {norm(a) for a in args}
+    for path, kind in classify(st):
+        if want and path not in want:
+            continue
+        if kind == "modified" or kind == "new" or kind == "deleted":
+            old = read(os.path.join(ORIG, path)) if kind != "new" else b""
+            new = read(os.path.join(SRC, path)) if kind != "deleted" else b""
+            try:
+                a = old.decode().splitlines(keepends=True)
+                b = new.decode().splitlines(keepends=True)
+            except UnicodeDecodeError:
+                print("Binary file %s differs" % path)
+                continue
+            sys.stdout.writelines(difflib.unified_diff(
+                a, b, "a/" + path, "b/" + path))
+
+
+def cmd_push(args):
+    st = load_state()
+    msg, force = None, False
+    i = 0
+    while i < len(args):
+        if args[i] == "-m":
+            msg = args[i + 1]
+            i += 2
+        elif args[i] == "--force":
+            force = True
+            i += 1
+        else:
+            die("unknown arg %s" % args[i])
+    if not msg:
+        die("usage: surgeon push -m 'commit message' [--force]")
+
+    changes = [(p, k) for p, k in classify(st) if k in ("modified", "new", "deleted")]
+    missing = [p for p, k in classify(st) if k == "missing"]
+    if missing:
+        die("files missing from src/ (use rm or revert): " + ", ".join(missing))
+    if not changes:
+        print("nothing to push")
+        return
+    repo, branch = st["repo"], st["branch"]
+
+    # 1. head + its tree
+    ref = gh("repos/%s/git/ref/heads/%s" % (repo, branch))
+    head = ref["object"]["sha"]
+    base_tree = gh("repos/%s/git/commits/%s" % (repo, head))["tree"]["sha"]
+
+    # 2. conflict check: has anyone touched these files since we fetched?
+    for path, kind in changes:
+        rec = st["files"][path]
+        now = remote_file_sha(st, path)
+        if kind == "new" and now is not None and not force:
+            die("%s appeared upstream since you created it (--force to overwrite)" % path)
+        if kind != "new" and now != rec["sha"] and not force:
+            die("%s changed upstream since you fetched it (now %s, had %s).\n"
+                "  `surgeon revert` + `surgeon get` to refetch, or --force to overwrite"
+                % (path, (now or "gone")[:10], rec["sha"][:10]))
+
+    # 3. blobs + tree entries
+    entries = []
+    for path, kind in changes:
+        if kind == "deleted":
+            entries.append({"path": path, "mode": "100644", "type": "blob", "sha": None})
+            continue
+        data = read(os.path.join(SRC, path))
+        mode = "100755" if os.access(os.path.join(SRC, path), os.X_OK) else "100644"
+        b = gh("repos/%s/git/blobs" % repo, input_json={
+            "content": base64.b64encode(data).decode(), "encoding": "base64"})
+        entries.append({"path": path, "mode": mode, "type": "blob", "sha": b["sha"]})
+        print("  %-9s %s" % (kind, path))
+    tree = gh("repos/%s/git/trees" % repo, input_json={"base_tree": base_tree, "tree": entries})
+
+    # 4. commit + move ref
+    commit = gh("repos/%s/git/commits" % repo, input_json={
+        "message": msg, "tree": tree["sha"], "parents": [head]})
+    gh("repos/%s/git/refs/heads/%s" % (repo, branch), "-X", "PATCH",
+       input_json={"sha": commit["sha"]})
+
+    # 5. local bookkeeping: edited copies become the new pristine copies
+    for path, kind in changes:
+        if kind == "deleted":
+            del st["files"][path]
+            o = os.path.join(ORIG, path)
+            if os.path.exists(o):
+                os.remove(o)
+        else:
+            data = read(os.path.join(SRC, path))
+            write(os.path.join(ORIG, path), data)
+            st["files"][path] = {"sha": blob_sha(data)}
+    save_state(st)
+    print("pushed %s -> %s@%s  https://github.com/%s/commit/%s"
+          % (commit["sha"][:10], repo, branch, repo, commit["sha"]))
+
+
+def cmd_branch(args):
+    st = load_state()
+    if not args:
+        die("usage: surgeon branch NAME")
+    name = args[0]
+    ref = gh("repos/%s/git/ref/heads/%s" % (st["repo"], st["branch"]))
+    existing = gh("repos/%s/git/ref/heads/%s" % (st["repo"], name), ok404=True)
+    if existing is None:
+        gh("repos/%s/git/refs" % st["repo"], input_json={
+            "ref": "refs/heads/" + name, "sha": ref["object"]["sha"]})
+        print("created %s from %s" % (name, st["branch"]))
+    else:
+        print("%s already exists, switching to it" % name)
+    st["branch"] = name
+    save_state(st)
+    print("target: %s @ %s" % (st["repo"], name))
+
+
+def cmd_sync(args):
+    st = load_state()
+    for path, rec in list(st["files"].items()):
+        if rec.get("new") or rec.get("deleted"):
+            continue
+        sha, data = fetch_file(st, path)
+        write(os.path.join(ORIG, path), data)
+        write(os.path.join(SRC, path), data)
+        st["files"][path] = {"sha": sha}
+        print("synced %s (%s)" % (path, sha[:10]))
+    save_state(st)
+
+
+COMMANDS = {
+    "init": cmd_init, "ls": cmd_ls, "find": cmd_find, "show": cmd_show,
+    "get": cmd_get, "new": cmd_new, "rm": cmd_rm, "revert": cmd_revert,
+    "status": cmd_status, "diff": cmd_diff, "push": cmd_push,
+    "branch": cmd_branch, "sync": cmd_sync,
+}
+
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return
+    fn = COMMANDS.get(sys.argv[1])
+    if fn is None:
+        die("unknown command %r (try --help)" % sys.argv[1])
+    fn(sys.argv[2:])
+
+
+if __name__ == "__main__":
+    main()
