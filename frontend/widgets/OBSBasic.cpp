@@ -42,6 +42,7 @@
 #include <utility/QuickTransition.hpp>
 #include <utility/SceneRecorder.hpp>
 #include <components/FxRack.hpp>
+#include <components/SceneStrip.hpp>
 #include <utility/SceneRenameDelegate.hpp>
 #if defined(_WIN32) || defined(WHATSNEW_ENABLED)
 #include <utility/WhatsNewInfoThread.hpp>
