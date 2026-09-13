@@ -43,9 +43,9 @@ public:
 	~FxRack();
 
 	/* the line under the Record monitor */
-	QWidget *Summary() const { return summary; }
+	QWidget *Summary() const { return summary.data(); }
 	/* the panel, hidden until the line is clicked */
-	QWidget *Panel() const { return panel; }
+	QWidget *Panel() const { return panel.data(); }
 
 	/* Settings -> Output may have changed which tracks the recording uses */
 	void RefreshRecordTracks();
