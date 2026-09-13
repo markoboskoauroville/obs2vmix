@@ -64,13 +64,14 @@ class YouTubeAppDock;
 class QMessageBox;
 class QWidgetAction;
 struct QuickTransition;
+class SceneStrip;
+class SceneRecorder;
+class FxRack;
+class QToolButton;
+class QTimer;
 
 namespace OBS {
 class SceneCollection;
-class SceneStrip;
-class SceneRecorder;
-class QToolButton;
-class QTimer;
 struct Rect;
 enum class LogFileType;
 enum class ItemPasteType { Invalid, Reference, Duplicate, Both };

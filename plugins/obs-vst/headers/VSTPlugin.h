@@ -94,6 +94,11 @@ public:
 	void setChunk(const std::string &data);
 	void setProgram(const int programNumber);
 	int getProgram();
+	/* obs2vmix: the plugin's own preset list and a title for its window */
+	int numPrograms();
+	std::string programName(int programNumber);
+	std::string effectDisplayName();
+	void setDisplayName(const std::string &source, const std::string &filter);
 	void getSourceNames();
 	obs_audio_data *process(struct obs_audio_data *audio);
 	bool openInterfaceWhenActive = false;

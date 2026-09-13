@@ -421,6 +421,35 @@ int VSTPlugin::getProgram()
 	return effect->dispatcher(effect, effGetProgram, 0, 0, NULL, 0.0f);
 }
 
+int VSTPlugin::numPrograms()
+{
+	std::lock_guard<std::recursive_mutex> lock(lockEffect);
+	return effect ? effect->numPrograms : 0;
+}
+
+std::string VSTPlugin::programName(int programNumber)
+{
+	std::lock_guard<std::recursive_mutex> lock(lockEffect);
+	if (!effect || programNumber < 0 || programNumber >= effect->numPrograms)
+		return "";
+	char name[256] = {0};
+	effect->dispatcher(effect, effGetProgramNameIndexed, programNumber, 0, name, 0.0f);
+	name[255] = 0;
+	return name;
+}
+
+std::string VSTPlugin::effectDisplayName()
+{
+	std::lock_guard<std::recursive_mutex> lock(lockEffect);
+	return effect ? std::string(effectName) : std::string();
+}
+
+void VSTPlugin::setDisplayName(const std::string &source, const std::string &filter)
+{
+	sourceName = source;
+	filterName = filter;
+}
+
 void VSTPlugin::getSourceNames()
 {
 	/* Only call inside the vst_filter_audio function! */

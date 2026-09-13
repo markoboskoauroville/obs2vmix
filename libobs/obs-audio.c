@@ -545,6 +545,34 @@ static inline void clear_audio_output_buf(obs_source_t *source, struct obs_core_
 	}
 }
 
+/* obs2vmix: master audio processor */
+static pthread_mutex_t master_processor_mutex = PTHREAD_MUTEX_INITIALIZER;
+static obs_master_audio_processor_t master_processor = NULL;
+static void *master_processor_param = NULL;
+
+void obs_set_master_audio_processor(obs_master_audio_processor_t processor, void *param)
+{
+	pthread_mutex_lock(&master_processor_mutex);
+	master_processor = processor;
+	master_processor_param = param;
+	pthread_mutex_unlock(&master_processor_mutex);
+}
+
+static inline void run_master_audio_processor(uint32_t mixers, struct audio_output_data *mixes, size_t channels,
+					      uint32_t sample_rate)
+{
+	pthread_mutex_lock(&master_processor_mutex);
+	if (master_processor) {
+		for (size_t mix_idx = 0; mix_idx < MAX_AUDIO_MIXES; mix_idx++) {
+			if ((mixers & (1 << mix_idx)) == 0)
+				continue;
+			master_processor(master_processor_param, mix_idx, mixes[mix_idx].data, channels,
+					 AUDIO_OUTPUT_FRAMES, sample_rate);
+		}
+	}
+	pthread_mutex_unlock(&master_processor_mutex);
+}
+
 bool audio_callback(void *param, uint64_t start_ts_in, uint64_t end_ts_in, uint64_t *out_ts, uint32_t mixers,
 		    struct audio_output_data *mixes)
 {
@@ -684,6 +712,9 @@ bool audio_callback(void *param, uint64_t start_ts_in, uint64_t end_ts_in, uint6
 
 			pthread_mutex_unlock(&source->audio_buf_mutex);
 		}
+
+		/* obs2vmix: the master chain, after the mix, before the outputs */
+		run_master_audio_processor(mixers, mixes, channels, (uint32_t)sample_rate);
 	}
 
 	/* ------------------------------------------------ */

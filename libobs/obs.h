@@ -904,6 +904,13 @@ EXPORT void obs_add_raw_audio_callback(size_t mix_idx, const struct audio_conver
 				       audio_output_callback_t callback, void *param);
 EXPORT void obs_remove_raw_audio_callback(size_t mix_idx, audio_output_callback_t callback, void *param);
 
+/* obs2vmix: a processor that runs over every mixed track (planar float,
+ * AUDIO_OUTPUT_FRAMES frames) after the sources were mixed and before the
+ * outputs and encoders read it. Runs on the audio thread. NULL removes it. */
+typedef void (*obs_master_audio_processor_t)(void *param, size_t mix_idx, float **data, size_t channels,
+					     size_t frames, uint32_t sample_rate);
+EXPORT void obs_set_master_audio_processor(obs_master_audio_processor_t processor, void *param);
+
 EXPORT uint64_t obs_get_video_frame_time(void);
 
 EXPORT double obs_get_active_fps(void);
