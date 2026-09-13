@@ -4,11 +4,11 @@
   <launchable type="desktop-id">com.obsproject.Studio.desktop</launchable>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-2.0-or-later</project_license>
-  <name>OBS Studio</name>
+  <name>OBS2vMix</name>
   <developer id="com.obsproject">
     <name>OBS Project</name>
   </developer>
-  <summary>Live stream and record videos</summary>
+  <summary>Switch scenes like a vision mixer, on the OBS Studio engine</summary>
   <description>
     <p>Free and open source software for video capturing, recording, and live streaming.</p>
     <p>Features:</p>

@@ -7,14 +7,14 @@ BEGIN
   BEGIN
     BLOCK "040904B0"
     BEGIN
-      VALUE "CompanyName", "OBS"
-      VALUE "FileDescription", "OBS Studio"
+      VALUE "CompanyName", "OBS2vMix"
+      VALUE "FileDescription", "OBS2vMix"
       VALUE "FileVersion", "${OBS_VERSION_CANONICAL}"
       VALUE "InternalName", "obs"
       VALUE "OriginalFilename", "obs"
-      VALUE "ProductName", "OBS Studio"
+      VALUE "ProductName", "OBS2vMix"
       VALUE "ProductVersion", "${OBS_VERSION_CANONICAL}"
-      VALUE "Comments", "Free and open source software for video recording and live streaming"
+      VALUE "Comments", "The OBS Studio engine with a vision-mixer operator window"
       VALUE "LegalCopyright", "${OBS_LEGAL_COPYRIGHT}"
     END
   END

@@ -67,6 +67,10 @@ struct QuickTransition;
 
 namespace OBS {
 class SceneCollection;
+class SceneStrip;
+class SceneRecorder;
+class QToolButton;
+class QTimer;
 struct Rect;
 enum class LogFileType;
 enum class ItemPasteType { Invalid, Reference, Duplicate, Both };
@@ -1504,6 +1508,35 @@ private:
 	void SeamCut();
 	void SeamTake();
 	static bool SeamKeyIsFree();
+
+	/* obs2vmix: the seam bar, the monitors and the scene strip */
+	QPointer<QWidget> seamBar;
+	QPointer<SceneStrip> sceneStrip;
+	QPointer<QToolButton> seamCollapseButton;
+	QPointer<QPushButton> seamEditorDone;
+	bool seamSingleMonitor = false;
+	bool seamSingleShowsProgram = true;
+	bool seamEditorOpen = false;
+	bool seamSourcesDockWasVisible = true;
+	void CreateSeamBar();
+	void ApplyMonitorLayout();
+	void SeamToggleCollapse();
+	void SeamSwapMonitor();
+	void SeamSelectScene(int index);
+
+private slots:
+	void OpenSceneEditor(OBSSource scene);
+	void CloseSceneEditor();
+	void ToggleSceneRecording(OBSSource scene);
+
+private:
+	/* obs2vmix: per-scene background recordings (SceneRecorder) */
+	std::vector<std::unique_ptr<SceneRecorder>> sceneRecorders;
+	QPointer<QTimer> sceneRecordTimer;
+	SceneRecorder *FindSceneRecorder(obs_source_t *scene);
+	void StopAllSceneRecordings();
+	void UpdateSceneRecordingStatus();
+	void SceneRecordingStopped(SceneRecorder *recorder);
 
 	std::unordered_map<std::string, OBSSource> transitions;
 	// FIXME: Any code accessing this collection relies on order of insertion

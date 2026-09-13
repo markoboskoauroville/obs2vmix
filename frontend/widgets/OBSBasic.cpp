@@ -40,6 +40,7 @@
 #include <models/SceneCollection.hpp>
 #include <settings/OBSBasicSettings.hpp>
 #include <utility/QuickTransition.hpp>
+#include <utility/SceneRecorder.hpp>
 #include <utility/SceneRenameDelegate.hpp>
 #if defined(_WIN32) || defined(WHATSNEW_ENABLED)
 #include <utility/WhatsNewInfoThread.hpp>
@@ -1446,6 +1447,9 @@ void OBSBasic::applicationShutdown() noexcept
 	delete deinterlaceMenu;
 	delete perSceneTransitionMenu;
 	delete shortcutFilter;
+	sceneRecorders.clear();
+	delete sceneStrip;
+	delete seamBar;
 	delete programOptions;
 	delete program;
 
@@ -2126,12 +2130,8 @@ void OBSBasic::UpdateTitleBar()
 	const char *profile = config_get_string(App()->GetUserConfig(), "Basic", "Profile");
 	const char *sceneCollection = config_get_string(App()->GetUserConfig(), "Basic", "SceneCollection");
 
-	name << "OBS ";
-	if (previewProgramMode) {
-		name << "Studio ";
-	}
-
-	name << App()->GetVersionString(false);
+	/* obs2vmix: the app has its own version; the OBS engine version follows in brackets */
+	name << "OBS2vMix " << OBS2VMIX_VERSION << " (OBS " << App()->GetVersionString(false) << ")";
 	if (safe_mode) {
 		name << " (" << Str("TitleBar.SafeMode") << ")";
 	}

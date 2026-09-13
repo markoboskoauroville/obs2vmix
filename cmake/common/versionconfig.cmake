@@ -8,7 +8,7 @@ set(_obs_version_canonical ${_obs_default_version})
 # Attempt to automatically discover expected OBS version
 if(NOT DEFINED OBS_VERSION_OVERRIDE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
   execute_process(
-    COMMAND git describe --always --tags --dirty=-modified
+    COMMAND git describe --always --tags --dirty=-modified --exclude "obs2vmix-*"
     OUTPUT_VARIABLE _obs_version
     ERROR_VARIABLE _git_describe_err
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
@@ -37,6 +37,25 @@ elseif(DEFINED OBS_VERSION_OVERRIDE)
     message(FATAL_ERROR "Invalid version supplied - must be <MAJOR>.<MINOR>.<PATCH>[-(rc|beta)<NUMBER>].")
   endif()
 endif()
+
+# obs2vmix: the app carries its own version, taken from the newest obs2vmix-<x.y.z> tag
+set(OBS2VMIX_VERSION "0.0.0")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+  execute_process(
+    COMMAND git describe --tags --match "obs2vmix-*" --abbrev=0
+    OUTPUT_VARIABLE _obs2vmix_tag
+    ERROR_QUIET
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    RESULT_VARIABLE _obs2vmix_result
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+  if(_obs2vmix_result EQUAL 0 AND _obs2vmix_tag MATCHES "obs2vmix-(.+)")
+    set(OBS2VMIX_VERSION "${CMAKE_MATCH_1}")
+  endif()
+  unset(_obs2vmix_tag)
+  unset(_obs2vmix_result)
+endif()
+message(STATUS "OBS2vMix version: ${OBS2VMIX_VERSION}")
 
 # Set beta/rc versions if suffix included in version string
 if(_obs_version MATCHES "[0-9]+\\.[0-9]+\\.[0-9]+-rc[0-9]+")

@@ -20,6 +20,9 @@
 #include "OBSBasic.hpp"
 #include "OBSProjector.hpp"
 
+#include <components/SceneStrip.hpp>
+#include <utility/SceneRecorder.hpp>
+
 #include <utility/display-helpers.hpp>
 #include <utility/QuickTransition.hpp>
 
@@ -34,6 +37,11 @@
 #include <QPlainTextEdit>
 #include <QAbstractSpinBox>
 #include <QAbstractButton>
+#include <QToolButton>
+#include <QEvent>
+#include <QTimer>
+
+#include <functional>
 
 #include <algorithm>
 #include <cmath>
@@ -73,22 +81,30 @@ void OBSBasic::CreateProgramDisplay()
 #define T_BAR_PRECISION_F ((float)T_BAR_PRECISION)
 #define T_BAR_CLAMP (T_BAR_PRECISION / 10)
 
+/* a double-click on a monitor, for the single-monitor swap */
+class MonitorDoubleClick : public QObject {
+	std::function<void()> fn;
+
+public:
+	MonitorDoubleClick(QObject *parent, std::function<void()> f) : QObject(parent), fn(std::move(f)) {}
+
+protected:
+	bool eventFilter(QObject *obj, QEvent *event) override
+	{
+		if (event->type() == QEvent::MouseButtonDblClick)
+			fn();
+		return QObject::eventFilter(obj, event);
+	}
+};
+
 void OBSBasic::CreateProgramOptions()
 {
+	/* obs2vmix: this column is kept for the quick transitions and the
+	 * T-bar (other code adds its buttons here), but it stays hidden; the
+	 * operator's controls live on the seam bar above the monitors. */
 	programOptions = new QWidget();
 	QVBoxLayout *layout = new QVBoxLayout();
 	layout->setSpacing(4);
-
-	QPushButton *configTransitions = new QPushButton();
-	configTransitions->setProperty("class", "icon-dots-vert");
-
-	QHBoxLayout *mainButtonLayout = new QHBoxLayout();
-	mainButtonLayout->setSpacing(2);
-
-	transitionButton = new QPushButton(QTStr("obs2vmix.Take"));
-	transitionButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-	transitionButton->setProperty("class", "obs2vmix-take");
-	transitionButton->setToolTip(QTStr("obs2vmix.TakeTT"));
 
 	QHBoxLayout *quickTransitionsLayout = new QHBoxLayout();
 	quickTransitionsLayout->setSpacing(2);
@@ -102,9 +118,6 @@ void OBSBasic::CreateProgramOptions()
 	quickTransitionsLayout->addWidget(quickTransitionsLabel);
 	quickTransitionsLayout->addWidget(addQuickTransition);
 
-	mainButtonLayout->addWidget(transitionButton);
-	mainButtonLayout->addWidget(configTransitions);
-
 	tBar = new SliderIgnoreClick(Qt::Horizontal);
 	tBar->setMinimum(0);
 	tBar->setMaximum(T_BAR_PRECISION - 1);
@@ -115,34 +128,99 @@ void OBSBasic::CreateProgramOptions()
 	connect(tBar, &QSlider::sliderReleased, this, &OBSBasic::TBarReleased);
 
 	layout->addStretch(0);
-	CreateSeamControls(layout);
-	layout->addLayout(mainButtonLayout);
 	layout->addLayout(quickTransitionsLayout);
 	layout->addWidget(tBar);
 	layout->addStretch(0);
 
 	programOptions->setLayout(layout);
-
-	/* Space = Take, Enter = Cut, while the main window is active and no
-	 * text field or button has the focus. Parented to programOptions so
-	 * the shortcuts die with studio mode. */
-	QShortcut *takeKey = new QShortcut(QKeySequence(Qt::Key_Space), programOptions, nullptr, nullptr,
-					   Qt::WindowShortcut);
-	connect(takeKey, &QShortcut::activated, this, [this]() {
-		if (SeamKeyIsFree())
-			SeamTake();
-	});
-	QShortcut *cutKey = new QShortcut(QKeySequence(Qt::Key_Return), programOptions, nullptr, nullptr,
-					  Qt::WindowShortcut);
-	connect(cutKey, &QShortcut::activated, this, [this]() {
-		if (SeamKeyIsFree())
-			SeamCut();
-	});
+	programOptions->hide();
 
 	auto onAdd = [this]() {
 		QScopedPointer<QMenu> menu(CreateTransitionMenu(this, nullptr));
 		menu->exec(QCursor::pos());
 	};
+
+	connect(addQuickTransition, &QAbstractButton::clicked, this, onAdd);
+
+	CreateSeamBar();
+}
+
+/* the bar on the seam: Source ⧉ | transition, length, unit, CUT, TAKE ⋮ | Record */
+void OBSBasic::CreateSeamBar()
+{
+	seamBar = new QWidget();
+	seamBar->setObjectName("obs2vmixSeamBar");
+	QHBoxLayout *bar = new QHBoxLayout(seamBar);
+	bar->setContentsMargins(8, 3, 8, 3);
+	bar->setSpacing(6);
+
+	QLabel *sourceTag = new QLabel(QTStr("obs2vmix.Source"));
+	sourceTag->setStyleSheet("color:#3ec26b;font-weight:600;letter-spacing:1px;");
+
+	seamCollapseButton = new QToolButton();
+	seamCollapseButton->setText(QStringLiteral("⧉"));
+	seamCollapseButton->setToolTip(QTStr("obs2vmix.Collapse"));
+	seamCollapseButton->setAutoRaise(true);
+	connect(seamCollapseButton.data(), &QToolButton::clicked, this, &OBSBasic::SeamToggleCollapse);
+
+	bar->addWidget(sourceTag);
+	bar->addWidget(seamCollapseButton);
+	bar->addStretch(1);
+
+	CreateSeamControls(bar);
+
+	transitionButton = new QPushButton(QTStr("obs2vmix.Take"));
+	transitionButton->setProperty("class", "obs2vmix-take");
+	transitionButton->setToolTip(QTStr("obs2vmix.TakeTT"));
+	transitionButton->setStyleSheet("QPushButton{background:#e0413a;color:#fff;font-weight:600;letter-spacing:1px;"
+					"padding:3px 14px;border:1px solid #e0413a;border-radius:3px;}"
+					"QPushButton:hover{background:#f04f47;}QPushButton:pressed{background:#b8332d;}");
+	connect(transitionButton.data(), &QAbstractButton::clicked, this, &OBSBasic::TransitionClicked);
+	bar->addWidget(transitionButton);
+
+	QPushButton *configTransitions = new QPushButton();
+	configTransitions->setProperty("class", "icon-dots-vert");
+	configTransitions->setToolTip(QTStr("QuickTransitions"));
+	bar->addWidget(configTransitions);
+
+	bar->addStretch(1);
+
+	seamEditorDone = new QPushButton(QTStr("obs2vmix.CloseEditor"));
+	seamEditorDone->setToolTip(QTStr("obs2vmix.CloseEditorTT"));
+	seamEditorDone->hide();
+	connect(seamEditorDone.data(), &QAbstractButton::clicked, this, &OBSBasic::CloseSceneEditor);
+	bar->addWidget(seamEditorDone);
+
+	QLabel *recordTag = new QLabel(QTStr("obs2vmix.Record"));
+	recordTag->setStyleSheet("color:#e0413a;font-weight:600;letter-spacing:1px;");
+	bar->addWidget(recordTag);
+
+	/* Space = Take, Enter = Cut, 1-9 = load a scene into Source, Esc =
+	 * close the editor; only while no text field or button has the focus.
+	 * Parented to the bar so the shortcuts die with studio mode. */
+	QShortcut *takeKey = new QShortcut(QKeySequence(Qt::Key_Space), seamBar, nullptr, nullptr, Qt::WindowShortcut);
+	connect(takeKey, &QShortcut::activated, this, [this]() {
+		if (SeamKeyIsFree())
+			SeamTake();
+	});
+	QShortcut *cutKey = new QShortcut(QKeySequence(Qt::Key_Return), seamBar, nullptr, nullptr, Qt::WindowShortcut);
+	connect(cutKey, &QShortcut::activated, this, [this]() {
+		if (SeamKeyIsFree())
+			SeamCut();
+	});
+	QShortcut *escKey = new QShortcut(QKeySequence(Qt::Key_Escape), seamBar, nullptr, nullptr, Qt::WindowShortcut);
+	connect(escKey, &QShortcut::activated, this, [this]() {
+		if (seamEditorOpen && SeamKeyIsFree())
+			CloseSceneEditor();
+	});
+	for (int i = 0; i < 9; i++) {
+		QShortcut *key = new QShortcut(QKeySequence(Qt::Key_1 + i), seamBar, nullptr, nullptr,
+					       Qt::WindowShortcut);
+		connect(key, &QShortcut::activated, this, [this, i]() {
+			if (SeamKeyIsFree())
+				SeamSelectScene(i);
+		});
+	}
 
 	auto onConfig = [this]() {
 		QMenu menu(this);
@@ -200,9 +278,96 @@ void OBSBasic::CreateProgramOptions()
 		menu.exec(QCursor::pos());
 	};
 
-	connect(transitionButton.data(), &QAbstractButton::clicked, this, &OBSBasic::TransitionClicked);
-	connect(addQuickTransition, &QAbstractButton::clicked, this, onAdd);
 	connect(configTransitions, &QAbstractButton::clicked, this, onConfig);
+}
+
+/* ---------------------------------------------------------------------- */
+/* obs2vmix: monitors, collapse, the scene editor                          */
+
+/* which monitors are shown: both, one (collapsed), or Source alone with
+ * the sources dock while a scene is being edited */
+void OBSBasic::ApplyMonitorLayout()
+{
+	if (!IsPreviewProgramMode() || !programWidget)
+		return;
+
+	bool showPreview = true, showProgram = true;
+	if (seamEditorOpen) {
+		showProgram = false;
+	} else if (seamSingleMonitor) {
+		showPreview = !seamSingleShowsProgram;
+		showProgram = seamSingleShowsProgram;
+	}
+
+	ui->previewContainer->setVisible(showPreview);
+	programWidget->setVisible(showProgram);
+
+	if (seamCollapseButton) {
+		seamCollapseButton->setText(seamSingleMonitor ? QStringLiteral("⧈") : QStringLiteral("⧉"));
+		seamCollapseButton->setToolTip(seamSingleMonitor ? QTStr("obs2vmix.Expand") : QTStr("obs2vmix.Collapse"));
+		seamCollapseButton->setEnabled(!seamEditorOpen);
+	}
+	if (seamEditorDone)
+		seamEditorDone->setVisible(seamEditorOpen);
+}
+
+void OBSBasic::SeamToggleCollapse()
+{
+	seamSingleMonitor = !seamSingleMonitor;
+	if (seamSingleMonitor)
+		seamSingleShowsProgram = true;
+	ApplyMonitorLayout();
+}
+
+/* double-click on the one monitor shown: swap Source <-> Record */
+void OBSBasic::SeamSwapMonitor()
+{
+	if (!seamSingleMonitor || seamEditorOpen)
+		return;
+	seamSingleShowsProgram = !seamSingleShowsProgram;
+	ApplyMonitorLayout();
+}
+
+void OBSBasic::OpenSceneEditor(OBSSource scene)
+{
+	if (!IsPreviewProgramMode() || !scene)
+		return;
+
+	SetCurrentScene(scene, false);
+
+	if (!seamEditorOpen) {
+		seamEditorOpen = true;
+		seamSourcesDockWasVisible = ui->sourcesDock->isVisible();
+		ui->sourcesDock->setVisible(true);
+		ui->sourcesDock->raise();
+	}
+	if (sceneStrip)
+		sceneStrip->SetEditing(scene);
+	ApplyMonitorLayout();
+}
+
+void OBSBasic::CloseSceneEditor()
+{
+	if (!seamEditorOpen)
+		return;
+	seamEditorOpen = false;
+	if (!seamSourcesDockWasVisible)
+		ui->sourcesDock->setVisible(false);
+	if (sceneStrip)
+		sceneStrip->SetEditing(nullptr);
+	ApplyMonitorLayout();
+}
+
+/* number keys: load scene N into Source */
+void OBSBasic::SeamSelectScene(int index)
+{
+	if (!sceneStrip)
+		return;
+	OBSSource s = sceneStrip->SceneAt(index);
+	if (!s)
+		return;
+	SetCurrentScene(s, false);
+	sceneStrip->ScrollTo(index);
 }
 
 void OBSBasic::TogglePreviewProgramMode()
@@ -432,9 +597,29 @@ void OBSBasic::SetPreviewProgramMode(bool enabled)
 
 		programWidget->setLayout(programLayout);
 
-		ui->previewLayout->addWidget(programOptions);
+		/* obs2vmix: Source and Record touch; the controls sit on the
+		 * seam bar above them and the scene strip below them */
+		ui->previewLayout->setSpacing(0);
 		ui->previewLayout->addWidget(programWidget);
-		ui->previewLayout->setAlignment(programOptions, Qt::AlignCenter);
+		programOptions->setParent(ui->previewLayout->parentWidget());
+		programOptions->hide();
+
+		ui->verticalLayout->insertWidget(0, seamBar);
+
+		sceneStrip = new SceneStrip();
+		ui->verticalLayout->insertWidget(2, sceneStrip);
+		connect(sceneStrip.data(), &SceneStrip::SceneClicked, this,
+			[this](OBSSource scene) { SetCurrentScene(scene, false); });
+		connect(sceneStrip.data(), &SceneStrip::SceneDoubleClicked, this, &OBSBasic::OpenSceneEditor);
+		connect(sceneStrip.data(), &SceneStrip::RecordClicked, this, &OBSBasic::ToggleSceneRecording);
+		connect(sceneStrip.data(), &SceneStrip::TilesChanged, this, &OBSBasic::UpdateSceneRecordingStatus);
+
+		program->installEventFilter(new MonitorDoubleClick(program, [this]() { SeamSwapMonitor(); }));
+		ui->preview->installEventFilter(new MonitorDoubleClick(seamBar, [this]() { SeamSwapMonitor(); }));
+
+		seamSingleMonitor = false;
+		seamEditorOpen = false;
+		ApplyMonitorLayout();
 
 		sizeObserver = new PreviewProgramSizeObserver(ui->preview, program, this);
 
@@ -452,6 +637,13 @@ void OBSBasic::SetPreviewProgramMode(bool enabled)
 		}
 		TransitionToScene(actualProgramScene, true);
 
+		StopAllSceneRecordings();
+		seamEditorOpen = false;
+		seamSingleMonitor = false;
+		ui->previewContainer->setVisible(true);
+		ui->previewLayout->setSpacing(2);
+		delete sceneStrip;
+		delete seamBar;
 		delete programOptions;
 		delete program;
 		delete programLabel;
@@ -538,8 +730,8 @@ void OBSBasic::ResizeProgram(uint32_t cx, uint32_t cy)
 
 void OBSBasic::UpdatePreviewProgramIndicators()
 {
-	bool labels = previewProgramMode ? config_get_bool(App()->GetUserConfig(), "BasicWindow", "StudioModeLabels")
-					 : false;
+	/* obs2vmix: the tally tags are always on in studio mode */
+	bool labels = previewProgramMode;
 
 	ui->previewLabel->setVisible(labels);
 
@@ -551,10 +743,14 @@ void OBSBasic::UpdatePreviewProgramIndicators()
 		return;
 	}
 
-	QString preview =
-		QTStr("StudioMode.PreviewSceneName").arg(QT_UTF8(obs_source_get_name(GetCurrentSceneSource())));
+	auto tag = [](const QString &kind, const char *color, const char *name) {
+		return QString("<span style='color:%1;font-weight:600;letter-spacing:1px;'>%2</span>"
+			       "&nbsp;&nbsp;<span style='color:#d8dbe2;'>%3</span>")
+			.arg(QString::fromUtf8(color), kind.toHtmlEscaped(), QT_UTF8(name).toHtmlEscaped());
+	};
 
-	QString program = QTStr("StudioMode.ProgramSceneName").arg(QT_UTF8(obs_source_get_name(GetProgramSource())));
+	QString preview = tag(QTStr("obs2vmix.Source"), "#3ec26b", obs_source_get_name(GetCurrentSceneSource()));
+	QString program = tag(QTStr("obs2vmix.Record"), "#e0413a", obs_source_get_name(GetProgramSource()));
 
 	if (ui->previewLabel->text() != preview) {
 		ui->previewLabel->setText(preview);
@@ -607,4 +803,128 @@ void OBSBasic::OpenStudioProgramProjector()
 void OBSBasic::OpenStudioProgramWindow()
 {
 	OpenProjector(nullptr, -1, ProjectorType::StudioProgram);
+}
+
+/* ---------------------------------------------------------------------- */
+/* obs2vmix: record a scene                                                */
+
+SceneRecorder *OBSBasic::FindSceneRecorder(obs_source_t *scene)
+{
+	for (auto &rec : sceneRecorders) {
+		OBSSource s = rec->Scene();
+		if (s && s.Get() == scene)
+			return rec.get();
+	}
+	return nullptr;
+}
+
+/* the red circle next to a scene's name */
+void OBSBasic::ToggleSceneRecording(OBSSource scene)
+{
+	if (!scene)
+		return;
+
+	SceneRecorder *existing = FindSceneRecorder(scene);
+	if (existing) {
+		existing->Stop();
+		UpdateSceneRecordingStatus();
+		return;
+	}
+
+	auto rec = std::make_unique<SceneRecorder>(scene, this);
+	connect(rec.get(), &SceneRecorder::Stopped, this, &OBSBasic::SceneRecordingStopped);
+	if (!rec->Start()) {
+		blog(LOG_WARNING, "[obs2vmix] scene recording failed: %s", rec->Error().c_str());
+		OBSMessageBox::warning(this, QTStr("obs2vmix.RecordFailed"), QT_UTF8(rec->Error().c_str()));
+		UpdateSceneRecordingStatus();
+		return;
+	}
+	sceneRecorders.push_back(std::move(rec));
+
+	if (!sceneRecordTimer) {
+		sceneRecordTimer = new QTimer(this);
+		sceneRecordTimer->setInterval(250);
+		connect(sceneRecordTimer.data(), &QTimer::timeout, this, &OBSBasic::UpdateSceneRecordingStatus);
+	}
+	if (!sceneRecordTimer->isActive())
+		sceneRecordTimer->start();
+
+	UpdateSceneRecordingStatus();
+}
+
+void OBSBasic::SceneRecordingStopped(SceneRecorder *recorder)
+{
+	for (auto it = sceneRecorders.begin(); it != sceneRecorders.end(); ++it) {
+		if (it->get() == recorder) {
+			blog(LOG_INFO, "[obs2vmix] scene recording finished: %s", recorder->Path().c_str());
+			sceneRecorders.erase(it);
+			break;
+		}
+	}
+	if (sceneRecorders.empty() && sceneRecordTimer)
+		sceneRecordTimer->stop();
+	UpdateSceneRecordingStatus();
+}
+
+void OBSBasic::StopAllSceneRecordings()
+{
+	if (sceneRecordTimer)
+		sceneRecordTimer->stop();
+	/* the destructors force-stop what is still running */
+	sceneRecorders.clear();
+}
+
+static QString formatElapsed(uint64_t ms)
+{
+	uint64_t s = ms / 1000;
+	return QString("%1:%2:%3")
+		.arg(s / 3600, 2, 10, QChar('0'))
+		.arg((s / 60) % 60, 2, 10, QChar('0'))
+		.arg(s % 60, 2, 10, QChar('0'));
+}
+
+static QString formatBytes(uint64_t b)
+{
+	const double GB = 1024.0 * 1024.0 * 1024.0;
+	if (b >= 1000 * GB)
+		return QString("%1 TB").arg(b / (1024.0 * GB), 0, 'f', 2);
+	if (b >= GB)
+		return QString("%1 GB").arg((qulonglong)(b / GB));
+	return QString("%1 MB").arg((qulonglong)(b / (1024.0 * 1024.0)));
+}
+
+/* the status line under every thumbnail, 4 Hz while anything records */
+void OBSBasic::UpdateSceneRecordingStatus()
+{
+	if (!sceneStrip)
+		return;
+
+	int count = sceneStrip->Count();
+	for (int i = 0; i < count; i++) {
+		OBSSource s = sceneStrip->SceneAt(i);
+		SceneRecorder *rec = s ? FindSceneRecorder(s) : nullptr;
+		if (!rec) {
+			sceneStrip->SetRecording(i, false);
+			sceneStrip->SetStatus(i, QString(), 0);
+			continue;
+		}
+
+		SceneRecorder::Stats st = rec->Poll();
+		QStringList parts;
+		parts << formatBytes(st.freeBytes);
+		parts << QString("%1 fps").arg((int)(st.fps + 0.5));
+		if (st.dropped)
+			parts << QString("%1 dropped").arg(st.dropped);
+
+		int level = st.lowDisk ? 2 : st.dropped ? 1 : 0;
+		sceneStrip->SetRecording(i, true);
+		sceneStrip->SetStatus(i, QString("%1 (%2)").arg(formatElapsed(st.elapsedMs), parts.join(" · ")), level);
+	}
+
+	/* a recorder whose scene left the collection stops itself */
+	for (auto &rec : sceneRecorders) {
+		OBSSource s = rec->Scene();
+		if (!s || sceneStrip->IndexOf(s) < 0)
+			rec->Stop(true);
+	}
 }

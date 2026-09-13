@@ -200,9 +200,9 @@ build() {
         } else {
           run_xcodebuild ${build_args}
 
-          rm -rf OBS.app
-          mkdir OBS.app
-          ditto frontend/${config}/OBS.app OBS.app
+          rm -rf OBS2vMix.app
+          mkdir OBS2vMix.app
+          ditto frontend/${config}/OBS2vMix.app OBS2vMix.app
         }
       }
       popd

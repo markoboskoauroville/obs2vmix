@@ -103,6 +103,9 @@ get_property(obs_module_list GLOBAL PROPERTY OBS_MODULES_ENABLED)
 list(JOIN obs_module_list "|" SAFE_MODULES)
 target_compile_definitions(obs-studio PRIVATE "SAFE_MODULES=\"${SAFE_MODULES}\"")
 
+# obs2vmix: the app version (from the newest obs2vmix-<x.y.z> tag, see versionconfig.cmake)
+target_compile_definitions(obs-studio PRIVATE "OBS2VMIX_VERSION=\"${OBS2VMIX_VERSION}\"")
+
 get_target_property(target_sources obs-studio SOURCES)
 set(target_cpp_sources ${target_sources})
 set(target_hpp_sources ${target_sources})

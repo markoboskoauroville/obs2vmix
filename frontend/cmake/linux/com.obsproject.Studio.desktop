@@ -1,8 +1,8 @@
 [Desktop Entry]
 Version=1.0
-Name=OBS Studio
-GenericName=Streaming/Recording Software
-Comment=Free and Open Source Streaming/Recording Software
+Name=OBS2vMix
+GenericName=Vision Mixer
+Comment=The OBS Studio engine with a vision-mixer operator window
 Exec=obs
 Icon=com.obsproject.Studio
 Terminal=false

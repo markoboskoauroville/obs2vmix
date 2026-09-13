@@ -145,7 +145,7 @@ jobs:
             done
             echo
             echo "The builds are not code-signed. On macOS, right-click the app and choose Open the first time"
-            echo "(or run: xattr -dr com.apple.quarantine /Applications/OBS.app). On Windows, choose"
+            echo "(or run: xattr -dr com.apple.quarantine /Applications/OBS2vMix.app). On Windows, choose"
             echo "\"More info\" then \"Run anyway\" in SmartScreen."
             echo
             echo "### Checksums"
