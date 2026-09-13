@@ -21,6 +21,7 @@
 #include "OBSProjector.hpp"
 
 #include <components/SceneStrip.hpp>
+#include <components/FxRack.hpp>
 #include <utility/SceneRecorder.hpp>
 
 #include <utility/display-helpers.hpp>
@@ -606,8 +607,13 @@ void OBSBasic::SetPreviewProgramMode(bool enabled)
 
 		ui->verticalLayout->insertWidget(0, seamBar);
 
+		/* the FX rack: its line under the Record monitor, its panel under the monitors */
+		fxRack = new FxRack(this);
+		programLayout->addWidget(fxRack->Summary());
+		ui->verticalLayout->insertWidget(2, fxRack->Panel());
+
 		sceneStrip = new SceneStrip();
-		ui->verticalLayout->insertWidget(2, sceneStrip);
+		ui->verticalLayout->insertWidget(3, sceneStrip);
 		connect(sceneStrip.data(), &SceneStrip::SceneClicked, this,
 			[this](OBSSource scene) { SetCurrentScene(scene, false); });
 		connect(sceneStrip.data(), &SceneStrip::SceneDoubleClicked, this, &OBSBasic::OpenSceneEditor);
@@ -643,6 +649,7 @@ void OBSBasic::SetPreviewProgramMode(bool enabled)
 		ui->previewContainer->setVisible(true);
 		ui->previewLayout->setSpacing(2);
 		delete sceneStrip;
+		delete fxRack;
 		delete seamBar;
 		delete programOptions;
 		delete program;

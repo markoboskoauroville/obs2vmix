@@ -1513,6 +1513,7 @@ private:
 	/* obs2vmix: the seam bar, the monitors and the scene strip */
 	QPointer<QWidget> seamBar;
 	QPointer<SceneStrip> sceneStrip;
+	QPointer<FxRack> fxRack;
 	QPointer<QToolButton> seamCollapseButton;
 	QPointer<QPushButton> seamEditorDone;
 	bool seamSingleMonitor = false;

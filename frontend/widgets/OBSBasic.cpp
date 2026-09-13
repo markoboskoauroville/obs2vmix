@@ -41,6 +41,7 @@
 #include <settings/OBSBasicSettings.hpp>
 #include <utility/QuickTransition.hpp>
 #include <utility/SceneRecorder.hpp>
+#include <components/FxRack.hpp>
 #include <utility/SceneRenameDelegate.hpp>
 #if defined(_WIN32) || defined(WHATSNEW_ENABLED)
 #include <utility/WhatsNewInfoThread.hpp>
@@ -1449,6 +1450,7 @@ void OBSBasic::applicationShutdown() noexcept
 	delete shortcutFilter;
 	sceneRecorders.clear();
 	delete sceneStrip;
+	delete fxRack;
 	delete seamBar;
 	delete programOptions;
 	delete program;
