@@ -131,15 +131,42 @@ by GitHub Actions.
 
 ## Phases
 
-1. **Build loop** — CI green on the untouched fork. *(this commit)*
-2. **Transition seam** — move dropdown + length to the seam, add the unit selector, Space = Take. Small patch; proves the edit→CI loop on real C++.
-3. **Scene strip** — the thumbnail component, click → Source, tally frames, scrolling.
-4. **Editor + collapse** — double-click opens, close collapses; ⧉ single-monitor mode.
-5. **Identity** — window title, About, package name `obs2vmix`, DMG name.
-6. **Record a scene** — `SceneRecorder` on the canvas API, red circle per thumbnail, status
-   line with time / free disk / fps / dropped. Needs phase 3.
-7. **FX rack** — master chain hook in libobs, `obs-vst` host reused outside the filter,
-   skyscraper + panel, Live / Live + Record, rack presets.
-8. **MIDI learn** — libremidi input, learn mode, mappings in the profile. Needs phase 7.
+1. **Build loop** — CI green on the untouched fork. *(done)*
+2. **Transition seam** — dropdown + length on the seam, unit selector, Space = Take, Enter = Cut. *(done)*
+3. **Scene strip** — `frontend/components/SceneStrip.{cpp,hpp}`: one display renders five live
+   thumbnails with tally frames, names under them, wheel / scrollbar for more, click → Source,
+   double-click → editor, 1–9 → Source. *(done 13 Sep 2026)*
+4. **Editor + collapse** — double-click: Source alone at full width with the Sources dock, *Done*
+   or Esc closes; ⧉ collapses to one monitor, double-click the monitor to swap. *(done)*
+5. **Identity** — the app is **OBS2vMix**: bundle `OBS2vMix.app`, display name, Windows version
+   resource, Linux desktop entry, tray, title bar, About, and a new icon everywhere (asset
+   catalog, DMG volume icon, `.ico`, Linux PNG/SVG, window and menu-bar icons). The bundle
+   identifier and the config folder stay OBS Studio's, so it shares scenes and profiles with an
+   installed OBS. The app's own version comes from the newest `obs2vmix-<x.y.z>` git tag
+   (`OBS2VMIX_VERSION`), shown as `OBS2vMix 0.3.0 (OBS 32.2.2)`; the OBS project version is no
+   longer touched by those tags (`git describe --exclude "obs2vmix-*"`). *(done)*
+6. **Record a scene** — `frontend/utility/SceneRecorder.{cpp,hpp}`: an `obs_view` with the scene
+   in channel 0 and its own video mix (`obs_view_add2`), the recording encoder from
+   Settings → Output (simple: the same quality rules as the simple output; advanced:
+   `recordEncoder.json`), AAC on the main mix, `ffmpeg_muxer` (or `mp4_output` / `mov_output`
+   for hybrid MP4/MOV), file `<scene> <date> <time>.<ext>` in the recording folder. The status
+   line polls at 4 Hz: elapsed, free disk, encoded fps, skipped + lagged frames; amber on drops,
+   red under 1 GB free. *(done)*
+7. **FX rack** — libobs gets `obs_set_master_audio_processor()` (`libobs/obs-audio.c`), called
+   with every mixed track after the mix and before the outputs. `frontend/utility/MasterChain`
+   runs eight slots over it, hosted by obs-vst's `VSTPlugin` class built into a static library
+   from `plugins/obs-vst` (`frontend/cmake/feature-obs2vmix.cmake`), with try-lock on the audio
+   thread so a loading plugin never stalls it. `frontend/components/FxRack` is the skyscraper
+   line under the Record monitor and the panel under the monitors: plugin, its own presets, UI,
+   mix, on/off, ▲▼ to reorder (buttons instead of drag), Live / Live + Record, Bypass, rack
+   presets `<profile>/racks/<name>.json`, the live rack in `<profile>/obs2vmix-rack.json`.
+   *Live* means track 1: in the simple output mode the recording also uses track 1, so it is
+   not dry there — that is OBS's track model. *(done)*
+8. **MIDI learn** — `frontend/utility/MidiIn` is a small input layer of its own (CoreMIDI with
+   the MIDI 1.0 protocol, WinMM, ALSA sequencer) instead of libremidi: every input is opened,
+   CC and note-on arrive as Qt signals. MIDI button → learn, click a control, touch the
+   controller; mappings in `<profile>/obs2vmix-midi.json`, shown as `CC 21` / `N 36` badges.
+   *(done)*
 
 Phases 6–8 were added 13 Sep 2026 from Marko's spec of the same day; the mockup shows all three.
+Phases 3–8 were built 13 Sep 2026 on `obs2vmix/seam`.
