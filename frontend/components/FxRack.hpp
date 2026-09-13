@@ -18,14 +18,14 @@
 #include <utility/MasterChain.hpp>
 
 #include <QObject>
+#include <QFrame>
+#include <QWidget>
 #include <QPointer>
 #include <QString>
 #include <QMap>
 
 #include <vector>
 
-class QWidget;
-class QFrame;
 class QLabel;
 class QComboBox;
 class QPushButton;
