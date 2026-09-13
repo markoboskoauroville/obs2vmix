@@ -18,6 +18,7 @@
 #include <QDateTime>
 #include <QString>
 
+#include <cstring>
 #include <filesystem>
 
 extern const char *get_simple_output_encoder(const char *name);
