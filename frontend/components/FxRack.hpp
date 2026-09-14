@@ -1,11 +1,11 @@
 /******************************************************************************
     obs2vmix: the FX rack
 
-    Two widgets over one MasterChain: the skyscraper, a thin line under the
-    Record monitor with one small window per slot, and the panel that opens
-    beneath the monitors, Blue Cat PatchWork style: eight slots in signal
-    order, on/off, plugin, its presets, its own window, a mix knob; Live /
-    Live + Record; Bypass; rack presets; MIDI learn.
+    One floating window over one MasterChain, opened from the Final
+    monitor's right-click menu (Audio effects…), Blue Cat PatchWork style:
+    eight slots in signal order, on/off, plugin, its presets, its own
+    window, a mix knob; Live / Live + Record; Bypass; rack presets; MIDI
+    learn. OK closes it; it can as well stay open and float.
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -18,6 +18,7 @@
 #include <utility/MasterChain.hpp>
 
 #include <QObject>
+#include <QDialog>
 #include <QFrame>
 #include <QWidget>
 #include <QPointer>
@@ -33,6 +34,7 @@ class QToolButton;
 class QSlider;
 class QTimer;
 class QEvent;
+
 class MidiIn;
 
 class FxRack : public QObject {
@@ -42,16 +44,12 @@ public:
 	explicit FxRack(QWidget *parent);
 	~FxRack();
 
-	/* the line under the Record monitor */
-	QWidget *Summary() const { return summary.data(); }
-	/* the panel, hidden until the line is clicked */
-	QWidget *Panel() const { return panel.data(); }
-
 	/* Settings -> Output may have changed which tracks the recording uses */
 	void RefreshRecordTracks();
 
 public slots:
-	void TogglePanel();
+	/* show the floating window, or bring it to the front */
+	void Open();
 
 protected:
 	bool eventFilter(QObject *obj, QEvent *event) override;
@@ -76,12 +74,10 @@ private:
 		QString path;
 	};
 
-	void BuildSummary(QWidget *parent);
 	void BuildPanel(QWidget *parent);
 	void BuildSlotRow(int i, class QGridLayout *grid);
 
 	void RefreshAll();
-	void RefreshSummary();
 	void RefreshSlot(int i);
 	void RefreshHead();
 	void RefreshBadges();
@@ -114,11 +110,7 @@ private:
 	MidiIn *midi = nullptr;
 	std::vector<PluginEntry> plugins;
 
-	QPointer<QWidget> summary;
-	QLabel *skyWindows[MasterChain::SLOTS] = {};
-	QLabel *chip = nullptr;
-	QLabel *caret = nullptr;
-
+	QPointer<QDialog> window;
 	QPointer<QFrame> panel;
 	QComboBox *rackCombo = nullptr;
 	QPushButton *saveButton = nullptr;

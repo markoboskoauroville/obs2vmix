@@ -18,6 +18,8 @@
 #include <util/config-file.h>
 
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QDirIterator>
 #include <QEvent>
@@ -43,11 +45,7 @@
 
 /* ---------------------------------------------------------------------- */
 
-static const char *SKY_WIN_STYLE = "QLabel{min-width:18px;max-width:18px;min-height:16px;max-height:16px;"
-				   "border:1px solid #3a3f4b;border-radius:2px;background:#15171c;"
-				   "font-weight:600;font-size:11px;color:%1;qproperty-alignment:AlignCenter;}";
-
-static const char *PANEL_STYLE = "QFrame#obs2vmixRackPanel{background:#15171c;border-top:1px solid #2c303a;}"
+static const char *PANEL_STYLE = "QFrame#obs2vmixRackPanel{background:#15171c;}"
 				 "QFrame#obs2vmixRackPanel QLabel{color:#8b91a0;font-size:11px;}"
 				 "QFrame#obs2vmixRackPanel QLabel[role=\"badge\"]{color:#0b1020;background:#7aa2ff;"
 				 "font-size:9px;font-weight:600;padding:0 3px;border-radius:2px;}"
@@ -77,7 +75,6 @@ FxRack::FxRack(QWidget *parent) : QObject(parent)
 {
 	plugins = ScanPlugins();
 
-	BuildSummary(parent);
 	BuildPanel(parent);
 
 	stateTimer = new QTimer(this);
@@ -107,54 +104,27 @@ FxRack::~FxRack()
 		SaveState();
 	}
 	chain.Remove();
-	delete panel;
-	delete summary;
+	delete window;
 }
 
 /* ---------------------------------------------------------------------- */
 /* building                                                                */
 
-void FxRack::BuildSummary(QWidget *parent)
-{
-	summary = new QWidget(parent);
-	summary->setObjectName("obs2vmixRackSummary");
-	summary->setCursor(Qt::PointingHandCursor);
-	summary->setToolTip(QTStr("obs2vmix.Rack.SummaryTT"));
-	summary->setFixedHeight(22);
-	summary->installEventFilter(this);
-
-	QHBoxLayout *row = new QHBoxLayout(summary);
-	row->setContentsMargins(8, 0, 8, 0);
-	row->setSpacing(4);
-
-	QLabel *fx = new QLabel(QStringLiteral("FX"));
-	fx->setStyleSheet("color:#8b91a0;font-size:11px;letter-spacing:1px;");
-	row->addWidget(fx);
-	row->addSpacing(4);
-
-	for (int i = 0; i < MasterChain::SLOTS; i++) {
-		skyWindows[i] = new QLabel(QStringLiteral("·"));
-		skyWindows[i]->setStyleSheet(QString(SKY_WIN_STYLE).arg("#5d6270"));
-		row->addWidget(skyWindows[i]);
-	}
-
-	row->addStretch(1);
-
-	chip = new QLabel();
-	chip->setStyleSheet("color:#8b91a0;font-size:11px;border:1px solid #3a3f4b;border-radius:2px;padding:0 5px;");
-	row->addWidget(chip);
-
-	caret = new QLabel(QStringLiteral("▾"));
-	caret->setStyleSheet("color:#5d6270;font-size:11px;");
-	row->addWidget(caret);
-}
-
 void FxRack::BuildPanel(QWidget *parent)
 {
-	panel = new QFrame(parent);
+	/* a tool window: it floats over the switcher, has no place in its
+	 * layout, and stays open as long as the operator wants it */
+	window = new QDialog(parent, Qt::Tool);
+	window->setWindowTitle(QTStr("obs2vmix.Rack.Title"));
+	window->setModal(false);
+	QVBoxLayout *outer = new QVBoxLayout(window);
+	outer->setContentsMargins(0, 0, 0, 0);
+	outer->setSpacing(0);
+
+	panel = new QFrame(window);
 	panel->setObjectName("obs2vmixRackPanel");
 	panel->setStyleSheet(PANEL_STYLE);
-	panel->hide();
+	outer->addWidget(panel);
 
 	QVBoxLayout *layout = new QVBoxLayout(panel);
 	layout->setContentsMargins(12, 8, 12, 10);
@@ -234,7 +204,15 @@ void FxRack::BuildPanel(QWidget *parent)
 
 	footLabel = new QLabel();
 	footLabel->setStyleSheet("color:#5d6270;font-size:11px;");
-	layout->addWidget(footLabel);
+
+	/* the foot: the summary line at the left, OK at the right. Every
+	 * change is stored as it is made; OK only closes the window. */
+	QHBoxLayout *foot = new QHBoxLayout();
+	foot->addWidget(footLabel, 1);
+	QDialogButtonBox *buttons = new QDialogButtonBox(QDialogButtonBox::Ok);
+	connect(buttons, &QDialogButtonBox::accepted, window.data(), &QDialog::accept);
+	foot->addWidget(buttons);
+	layout->addLayout(foot);
 
 	/* wiring */
 	connect(rackCombo, &QComboBox::activated, this, [this](int idx) {
@@ -262,20 +240,17 @@ void FxRack::BuildPanel(QWidget *parent)
 	connect(applyLive, &QPushButton::clicked, this, [this]() {
 		chain.SetApply(MasterChain::Apply::Live);
 		RefreshHead();
-		RefreshSummary();
 		ScheduleStateSave();
 	});
 	connect(applyBoth, &QPushButton::clicked, this, [this]() {
 		chain.SetApply(MasterChain::Apply::LiveAndRecord);
 		RefreshRecordTracks();
 		RefreshHead();
-		RefreshSummary();
 		ScheduleStateSave();
 	});
 	connect(bypassButton, &QPushButton::clicked, this, [this](bool checked) {
 		chain.SetBypass(checked);
 		RefreshHead();
-		RefreshSummary();
 		ScheduleStateSave();
 	});
 	connect(midiButton, &QPushButton::clicked, this, [this](bool checked) { SetLearning(checked); });
@@ -354,7 +329,6 @@ void FxRack::BuildSlotRow(int i, QGridLayout *grid)
 	connect(r.power, &QToolButton::clicked, this, [this, i](bool checked) {
 		chain.SetOn(i, checked);
 		RefreshSlot(i);
-		RefreshSummary();
 		ScheduleStateSave();
 	});
 	connect(r.plugin, &QComboBox::activated, this, [this, i](int idx) {
@@ -368,7 +342,6 @@ void FxRack::BuildSlotRow(int i, QGridLayout *grid)
 			OBSMessageBox::warning(panel, QTStr("obs2vmix.Rack.LoadFailed"), name);
 		}
 		RefreshSlot(i);
-		RefreshSummary();
 		ScheduleStateSave();
 	});
 	connect(r.preset, &QComboBox::activated, this, [this, i](int idx) {
@@ -476,7 +449,6 @@ void FxRack::RefreshAll()
 	for (int i = 0; i < MasterChain::SLOTS; i++)
 		RefreshSlot(i);
 	RefreshHead();
-	RefreshSummary();
 	RefreshRackList();
 	RefreshBadges();
 }
@@ -553,49 +525,18 @@ void FxRack::RefreshHead()
 	}
 }
 
-void FxRack::RefreshSummary()
+void FxRack::Open()
 {
-	bool bypass = chain.GetBypass();
-	for (int i = 0; i < MasterChain::SLOTS; i++) {
-		std::string name = chain.SlotName(i);
-		QLabel *w = skyWindows[i];
-		if (name.empty()) {
-			w->setText(QStringLiteral("·"));
-			w->setStyleSheet(QString(SKY_WIN_STYLE).arg("#5d6270"));
-			w->setToolTip(QTStr("obs2vmix.Rack.Empty"));
-			continue;
-		}
-		QString n = QString::fromStdString(name).trimmed();
-		w->setText(n.isEmpty() ? QStringLiteral("?") : n.left(1).toUpper());
-		bool lit = chain.SlotOn(i) && !bypass;
-		w->setStyleSheet(QString(SKY_WIN_STYLE).arg(lit ? "#3ec26b" : "#5d6270"));
-		w->setToolTip(n);
-	}
-
-	bool both = chain.GetApply() == MasterChain::Apply::LiveAndRecord;
-	chip->setText(bypass ? QTStr("obs2vmix.Rack.ChipBypass")
-			     : both ? QTStr("obs2vmix.Rack.ChipBoth")
-				    : QTStr("obs2vmix.Rack.ChipLive"));
-	const char *color = bypass ? "#f0b429" : both ? "#e0413a" : "#8b91a0";
-	chip->setStyleSheet(QString("color:%1;font-size:11px;border:1px solid #3a3f4b;border-radius:2px;padding:0 5px;")
-				    .arg(color));
-	caret->setText(panel && panel->isVisible() ? QStringLiteral("▴") : QStringLiteral("▾"));
-}
-
-void FxRack::TogglePanel()
-{
-	if (!panel)
+	if (!window)
 		return;
-	panel->setVisible(!panel->isVisible());
-	RefreshSummary();
+	RefreshAll();
+	window->show();
+	window->raise();
+	window->activateWindow();
 }
 
 bool FxRack::eventFilter(QObject *obj, QEvent *event)
 {
-	if (obj == summary.data() && event->type() == QEvent::MouseButtonPress) {
-		TogglePanel();
-		return true;
-	}
 	if (learning && event->type() == QEvent::MouseButtonPress) {
 		for (const Mappable &m : mappables) {
 			if (m.widget == obj) {
@@ -844,7 +785,6 @@ void FxRack::ApplyControl(const QString &id, int value, bool isNote)
 		return;
 	}
 	RefreshHead();
-	RefreshSummary();
 	ScheduleStateSave();
 }
 

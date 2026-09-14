@@ -39,11 +39,14 @@
 #include <QPlainTextEdit>
 #include <QAbstractSpinBox>
 #include <QAbstractButton>
-#include <QToolButton>
+#include <QSpinBox>
 #include <QEvent>
 #include <QTimer>
 #include <QActionGroup>
 #include <QDockWidget>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
 
 #include <functional>
 
@@ -163,16 +166,14 @@ void OBSBasic::CreateProgramOptions()
 
 	connect(addQuickTransition, &QAbstractButton::clicked, this, onAdd);
 
-	if (switcherView) {
+	if (switcherView)
 		programOptions->hide();
-		CreateSeamBar();
-	}
 }
 
-/* the "..." menu next to Take / Transition */
-void OBSBasic::ShowTransitionConfigMenu()
+/* the Studio Mode options: OBS's "..." menu next to its Transition button,
+ * a submenu of the Final monitor's menu in the vMix view */
+void OBSBasic::FillTransitionConfigMenu(QMenu *menu)
 {
-	QMenu menu(this);
 	QAction *action;
 
 	auto toggleEditProperties = [this]() {
@@ -197,19 +198,20 @@ void OBSBasic::ShowTransitionConfigMenu()
 		}
 	};
 
-	auto showToolTip = [&]() {
-		QAction *act = menu.activeAction();
-		QToolTip::showText(QCursor::pos(), act->toolTip(), &menu, menu.actionGeometry(act));
+	auto showToolTip = [menu]() {
+		QAction *act = menu->activeAction();
+		if (act)
+			QToolTip::showText(QCursor::pos(), act->toolTip(), menu, menu->actionGeometry(act));
 	};
 
-	action = menu.addAction(QTStr("QuickTransitions.DuplicateScene"));
+	action = menu->addAction(QTStr("QuickTransitions.DuplicateScene"));
 	action->setToolTip(QTStr("QuickTransitions.DuplicateSceneTT"));
 	action->setCheckable(true);
 	action->setChecked(sceneDuplicationMode);
 	connect(action, &QAction::triggered, this, toggleSceneDuplication);
 	connect(action, &QAction::hovered, action, showToolTip);
 
-	action = menu.addAction(QTStr("QuickTransitions.EditProperties"));
+	action = menu->addAction(QTStr("QuickTransitions.EditProperties"));
 	action->setToolTip(QTStr("QuickTransitions.EditPropertiesTT"));
 	action->setCheckable(true);
 	action->setChecked(editPropertiesMode);
@@ -217,101 +219,121 @@ void OBSBasic::ShowTransitionConfigMenu()
 	connect(action, &QAction::triggered, this, toggleEditProperties);
 	connect(action, &QAction::hovered, action, showToolTip);
 
-	action = menu.addAction(QTStr("QuickTransitions.SwapScenes"));
+	action = menu->addAction(QTStr("QuickTransitions.SwapScenes"));
 	action->setToolTip(QTStr("QuickTransitions.SwapScenesTT"));
 	action->setCheckable(true);
 	action->setChecked(swapScenesMode);
 	connect(action, &QAction::triggered, this, toggleSwapScenesMode);
 	connect(action, &QAction::hovered, action, showToolTip);
+}
 
+void OBSBasic::ShowTransitionConfigMenu()
+{
+	QMenu menu(this);
+	FillTransitionConfigMenu(&menu);
 	menu.exec(QCursor::pos());
 }
 
-/* the bar on the seam: Source ⧉ | transition, length, unit, CUT, TAKE ⋮ | Record */
-void OBSBasic::CreateSeamBar()
+/* Space = Take, Enter = Cut, 1-9 = load a scene into Source, Esc = close
+ * the editor; only while no text field or button has the focus. The
+ * shortcuts belong to a widget of the switcher, so they die with it. */
+void OBSBasic::CreateSwitcherKeys(QWidget *owner)
 {
-	seamBar = new QWidget();
-	seamBar->setObjectName("obs2vmixSeamBar");
-	QHBoxLayout *bar = new QHBoxLayout(seamBar);
-	bar->setContentsMargins(8, 3, 8, 3);
-	bar->setSpacing(6);
+	auto key = [this, owner](int k, std::function<void()> fn) {
+		QShortcut *sc = new QShortcut(QKeySequence(k), owner, nullptr, nullptr, Qt::WindowShortcut);
+		connect(sc, &QShortcut::activated, this, [this, fn]() {
+			if (SeamKeyIsFree())
+				fn();
+		});
+	};
 
-	QLabel *sourceTag = new QLabel(QTStr("obs2vmix.Source"));
-	sourceTag->setStyleSheet("color:#3ec26b;font-weight:600;letter-spacing:1px;");
-
-	seamCollapseButton = new QToolButton();
-	seamCollapseButton->setText(QStringLiteral("⧉"));
-	seamCollapseButton->setToolTip(QTStr("obs2vmix.Collapse"));
-	seamCollapseButton->setAutoRaise(true);
-	connect(seamCollapseButton.data(), &QToolButton::clicked, this, &OBSBasic::SeamToggleCollapse);
-
-	bar->addWidget(sourceTag);
-	bar->addWidget(seamCollapseButton);
-	bar->addStretch(1);
-
-	CreateSeamControls(bar);
-
-	transitionButton = new QPushButton(QTStr("obs2vmix.Take"));
-	transitionButton->setProperty("class", "obs2vmix-take");
-	transitionButton->setToolTip(QTStr("obs2vmix.TakeTT"));
-	transitionButton->setStyleSheet("QPushButton{background:#e0413a;color:#fff;font-weight:600;letter-spacing:1px;"
-					"padding:3px 14px;border:1px solid #e0413a;border-radius:3px;}"
-					"QPushButton:hover{background:#f04f47;}QPushButton:pressed{background:#b8332d;}");
-	connect(transitionButton.data(), &QAbstractButton::clicked, this, &OBSBasic::TransitionClicked);
-	bar->addWidget(transitionButton);
-
-	QPushButton *configTransitions = new QPushButton();
-	configTransitions->setProperty("class", "icon-dots-vert");
-	configTransitions->setToolTip(QTStr("QuickTransitions"));
-	bar->addWidget(configTransitions);
-
-	bar->addStretch(1);
-
-	seamEditorDone = new QPushButton(QTStr("obs2vmix.CloseEditor"));
-	seamEditorDone->setToolTip(QTStr("obs2vmix.CloseEditorTT"));
-	seamEditorDone->hide();
-	connect(seamEditorDone.data(), &QAbstractButton::clicked, this, &OBSBasic::CloseSceneEditor);
-	bar->addWidget(seamEditorDone);
-
-	QLabel *recordTag = new QLabel(QTStr("obs2vmix.Record"));
-	recordTag->setStyleSheet("color:#e0413a;font-weight:600;letter-spacing:1px;");
-	bar->addWidget(recordTag);
-
-	QToolButton *toObs = new QToolButton();
-	toObs->setText(QStringLiteral("OBS"));
-	toObs->setToolTip(QTStr("obs2vmix.Menu.OBSTT"));
-	toObs->setAutoRaise(true);
-	connect(toObs, &QToolButton::clicked, this, [this]() { SetSwitcherView(false); });
-	bar->addWidget(toObs);
-
-	/* Space = Take, Enter = Cut, 1-9 = load a scene into Source, Esc =
-	 * close the editor; only while no text field or button has the focus.
-	 * Parented to the bar so the shortcuts die with studio mode. */
-	QShortcut *takeKey = new QShortcut(QKeySequence(Qt::Key_Space), seamBar, nullptr, nullptr, Qt::WindowShortcut);
-	connect(takeKey, &QShortcut::activated, this, [this]() {
-		if (SeamKeyIsFree())
-			SeamTake();
-	});
-	QShortcut *cutKey = new QShortcut(QKeySequence(Qt::Key_Return), seamBar, nullptr, nullptr, Qt::WindowShortcut);
-	connect(cutKey, &QShortcut::activated, this, [this]() {
-		if (SeamKeyIsFree())
-			SeamCut();
-	});
-	QShortcut *escKey = new QShortcut(QKeySequence(Qt::Key_Escape), seamBar, nullptr, nullptr, Qt::WindowShortcut);
-	connect(escKey, &QShortcut::activated, this, [this]() {
-		if (seamEditorOpen && SeamKeyIsFree())
+	key(Qt::Key_Space, [this]() { SeamTake(); });
+	key(Qt::Key_Return, [this]() { SeamCut(); });
+	key(Qt::Key_Enter, [this]() { SeamCut(); });
+	key(Qt::Key_Escape, [this]() {
+		if (seamEditorOpen)
 			CloseSceneEditor();
 	});
-	for (int i = 0; i < 9; i++) {
-		QShortcut *key = new QShortcut(QKeySequence(Qt::Key_1 + i), seamBar, nullptr, nullptr,
-					       Qt::WindowShortcut);
-		connect(key, &QShortcut::activated, this, [this, i]() {
-			if (SeamKeyIsFree())
-				SeamSelectScene(i);
-		});
-	}
+	for (int i = 0; i < 9; i++)
+		key(Qt::Key_1 + i, [this, i]() { SeamSelectScene(i); });
+}
 
-	connect(configTransitions, &QAbstractButton::clicked, this, &OBSBasic::ShowTransitionConfigMenu);
+/* the tail of both monitor menus: one monitor, fullscreen, the OBS view */
+void OBSBasic::AddSwitcherCommonActions(QMenu *menu)
+{
+	menu->addSeparator();
+
+	QAction *one = menu->addAction(QTStr("obs2vmix.Menu.OneMonitor"), this, &OBSBasic::SeamToggleCollapse);
+	one->setCheckable(true);
+	one->setChecked(seamSingleMonitor);
+	one->setEnabled(!seamEditorOpen);
+
+	if (ui->actionFullscreenInterface)
+		menu->addAction(ui->actionFullscreenInterface);
+
+	menu->addSeparator();
+	menu->addAction(QTStr("obs2vmix.Menu.OBS"), this, [this]() { SetSwitcherView(false); });
+}
+
+/* right-click on the Source monitor */
+void OBSBasic::SourceViewContextMenu()
+{
+	QMenu popup(this);
+	OBSSource scene = GetCurrentSceneSource();
+
+	popup.addAction(QTStr("obs2vmix.Menu.Take"), this, &OBSBasic::SeamTake);
+	popup.addAction(QTStr("obs2vmix.Menu.Cut"), this, &OBSBasic::SeamCut);
+	popup.addSeparator();
+
+	QAction *edit = popup.addAction(QTStr("obs2vmix.Menu.EditScene"), this,
+					[this, scene]() { OpenSceneEditor(scene); });
+	edit->setEnabled(!!scene);
+
+	QAction *rec = popup.addAction(QTStr("obs2vmix.Menu.RecordScene"), this,
+				       [this, scene]() { ToggleSceneRecording(scene); });
+	rec->setCheckable(true);
+	rec->setChecked(scene && FindSceneRecorder(scene));
+	rec->setEnabled(!!scene);
+
+	popup.addSeparator();
+
+	QMenu *projector = new QMenu(QTStr("Projector.Open.Preview"), &popup);
+	AddProjectorMenuMonitors(projector, this, &OBSBasic::OpenPreviewProjector);
+	projector->addSeparator();
+	projector->addAction(QTStr("Projector.Window"), this, &OBSBasic::OpenPreviewWindow);
+	popup.addMenu(projector);
+	popup.addAction(QTStr("Screenshot.Preview"), this, &OBSBasic::ScreenshotScene);
+
+	AddSwitcherCommonActions(&popup);
+	popup.exec(QCursor::pos());
+}
+
+/* right-click on a thumbnail in the strip */
+void OBSBasic::SceneTileMenu(OBSSource scene, const QPoint &pos)
+{
+	if (!scene)
+		return;
+
+	QMenu popup(this);
+
+	popup.addAction(QTStr("obs2vmix.Menu.ToSource"), this, [this, scene]() { SetCurrentScene(scene, false); });
+	popup.addAction(QTStr("obs2vmix.Menu.TakeScene"), this, [this, scene]() {
+		SetCurrentScene(scene, false);
+		SeamTake();
+	});
+	popup.addSeparator();
+
+	if (seamEditorOpen)
+		popup.addAction(QTStr("obs2vmix.Menu.CloseEditor"), this, &OBSBasic::CloseSceneEditor);
+	else
+		popup.addAction(QTStr("obs2vmix.Menu.EditScene"), this, [this, scene]() { OpenSceneEditor(scene); });
+
+	QAction *rec = popup.addAction(QTStr("obs2vmix.Menu.RecordScene"), this,
+				       [this, scene]() { ToggleSceneRecording(scene); });
+	rec->setCheckable(true);
+	rec->setChecked(FindSceneRecorder(scene) != nullptr);
+
+	popup.exec(pos);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -334,14 +356,6 @@ void OBSBasic::ApplyMonitorLayout()
 
 	ui->previewContainer->setVisible(showPreview);
 	programWidget->setVisible(showProgram);
-
-	if (seamCollapseButton) {
-		seamCollapseButton->setText(seamSingleMonitor ? QStringLiteral("⧈") : QStringLiteral("⧉"));
-		seamCollapseButton->setToolTip(seamSingleMonitor ? QTStr("obs2vmix.Expand") : QTStr("obs2vmix.Collapse"));
-		seamCollapseButton->setEnabled(!seamEditorOpen);
-	}
-	if (seamEditorDone)
-		seamEditorDone->setVisible(seamEditorOpen);
 }
 
 void OBSBasic::SeamToggleCollapse()
@@ -410,7 +424,7 @@ void OBSBasic::TogglePreviewProgramMode()
 }
 
 /* ---------------------------------------------------------------------- */
-/* obs2vmix: the seam                                                      */
+/* obs2vmix: the transition                                                */
 
 static const int SEAM_UNIT_FRAMES = 0;
 static const int SEAM_UNIT_SECONDS = 1;
@@ -424,123 +438,109 @@ static double SeamFps()
 	return 30.0;
 }
 
-void OBSBasic::CreateSeamControls(QBoxLayout *layout)
+/* the engine works in milliseconds; the box shows frames, tenths of a
+ * second or milliseconds */
+static int SeamToMs(int value, int unit)
 {
-	seamTransitions = new QComboBox();
-	seamTransitions->setModel(ui->transitions->model());
-	seamTransitions->setToolTip(QTStr("Transition"));
-	seamTransitions->setSizeAdjustPolicy(QComboBox::AdjustToContents);
-
-	QHBoxLayout *lengthLayout = new QHBoxLayout();
-	lengthLayout->setSpacing(2);
-
-	seamDuration = new QSpinBox();
-	seamDuration->setRange(1, 20000);
-	seamDuration->setAccelerated(true);
-	seamDuration->setToolTip(QTStr("Basic.TransitionDuration"));
-
-	seamUnit = new QComboBox();
-	seamUnit->addItem(QTStr("obs2vmix.Unit.Frames"), SEAM_UNIT_FRAMES);
-	seamUnit->addItem(QTStr("obs2vmix.Unit.Seconds"), SEAM_UNIT_SECONDS);
-	seamUnit->addItem(QTStr("obs2vmix.Unit.Ms"), SEAM_UNIT_MS);
-	seamUnit->setCurrentIndex(SEAM_UNIT_FRAMES);
-
-	lengthLayout->addWidget(seamDuration);
-	lengthLayout->addWidget(seamUnit);
-
-	QPushButton *cutButton = new QPushButton(QTStr("obs2vmix.Cut"));
-	cutButton->setToolTip(QTStr("obs2vmix.CutTT"));
-	cutButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-
-	layout->addWidget(seamTransitions);
-	layout->addLayout(lengthLayout);
-	layout->addWidget(cutButton);
-
-	/* the dock's combo and this one share a model; keep the selection in step */
-	connect(seamTransitions, &QComboBox::currentIndexChanged, this, [this](int idx) {
-		if (idx < 0 || !seamTransitions)
-			return;
-		SetCurrentTransition(seamTransitions->itemData(idx).toString());
-	});
-	connect(this, &OBSBasic::CurrentTransitionChanged, this, &OBSBasic::SeamSyncTransition);
-	connect(this, &OBSBasic::TransitionDurationChanged, this, &OBSBasic::SeamSyncDuration);
-	connect(seamDuration, &QSpinBox::valueChanged, this, &OBSBasic::SeamDurationEdited);
-	connect(seamUnit, &QComboBox::currentIndexChanged, this, &OBSBasic::SeamSyncDuration);
-	connect(cutButton, &QAbstractButton::clicked, this, &OBSBasic::SeamCut);
-
-	SeamSyncTransition();
-	SeamSyncDuration();
+	if (unit == SEAM_UNIT_FRAMES)
+		return (int)std::lround(value * 1000.0 / SeamFps());
+	if (unit == SEAM_UNIT_SECONDS)
+		return value * 100;
+	return value;
 }
 
-void OBSBasic::SeamSyncTransition()
+static int SeamFromMs(int ms, int unit)
 {
-	if (!seamTransitions)
-		return;
-
-	int idx = seamTransitions->findData(QString::fromStdString(currentTransitionUuid));
-	if (idx != -1 && idx != seamTransitions->currentIndex()) {
-		QSignalBlocker sb(seamTransitions);
-		seamTransitions->setCurrentIndex(idx);
-	}
-
-	OBSSource tr = GetCurrentTransition();
-	bool fixed = tr ? obs_transition_fixed(tr) : false;
-	if (seamDuration)
-		seamDuration->setEnabled(!fixed);
-	if (seamUnit)
-		seamUnit->setEnabled(!fixed);
+	int shown;
+	if (unit == SEAM_UNIT_FRAMES)
+		shown = (int)std::lround(ms * SeamFps() / 1000.0);
+	else if (unit == SEAM_UNIT_SECONDS)
+		shown = (int)std::lround(ms / 100.0);
+	else
+		shown = ms;
+	return std::max(1, shown);
 }
 
-/* engine → box: show the engine's milliseconds in the chosen unit */
-void OBSBasic::SeamSyncDuration()
+/* Transition… on the Final monitor: the transition, its length and the
+ * unit; OK stores them and Space uses them from then on */
+void OBSBasic::ShowTransitionDialog()
 {
-	if (!seamDuration || !seamUnit)
+	if (!IsPreviewProgramMode())
 		return;
+
+	QDialog dialog(this);
+	dialog.setWindowTitle(QTStr("obs2vmix.Transition.Title"));
+	QFormLayout *form = new QFormLayout(&dialog);
+
+	QComboBox *transition = new QComboBox();
+	transition->setModel(ui->transitions->model());
+	transition->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+	int cur = transition->findData(QString::fromStdString(currentTransitionUuid));
+	if (cur >= 0)
+		transition->setCurrentIndex(cur);
+
+	QSpinBox *duration = new QSpinBox();
+	duration->setRange(1, 20000);
+	duration->setAccelerated(true);
+
+	QComboBox *unit = new QComboBox();
+	unit->addItem(QTStr("obs2vmix.Unit.Frames"), SEAM_UNIT_FRAMES);
+	unit->addItem(QTStr("obs2vmix.Unit.Seconds"), SEAM_UNIT_SECONDS);
+	unit->addItem(QTStr("obs2vmix.Unit.Ms"), SEAM_UNIT_MS);
+	config_t *cfg = App()->GetUserConfig();
+	int savedUnit = config_has_user_value(cfg, "obs2vmix", "DurationUnit")
+				? (int)config_get_int(cfg, "obs2vmix", "DurationUnit")
+				: SEAM_UNIT_FRAMES;
+	unit->setCurrentIndex(std::clamp(savedUnit, SEAM_UNIT_FRAMES, SEAM_UNIT_MS));
+
+	QHBoxLayout *length = new QHBoxLayout();
+	length->setSpacing(4);
+	length->addWidget(duration, 1);
+	length->addWidget(unit);
+
+	form->addRow(QTStr("Transition"), transition);
+	form->addRow(QTStr("Basic.TransitionDuration"), length);
+
+	QDialogButtonBox *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+	form->addRow(buttons);
+	connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+	connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
 
 	int ms = GetTransitionDuration();
-	int unit = seamUnit->currentData().toInt();
-	int shown;
+	int shownUnit = unit->currentData().toInt();
 
-	if (unit == SEAM_UNIT_FRAMES) {
-		shown = (int)std::lround(ms * SeamFps() / 1000.0);
-		seamDuration->setSingleStep(1);
-		seamDuration->setSuffix("");
-	} else if (unit == SEAM_UNIT_SECONDS) {
-		/* the box is an integer box: seconds are shown in tenths */
-		shown = (int)std::lround(ms / 100.0);
-		seamDuration->setSingleStep(1);
-		seamDuration->setSuffix(QStringLiteral(" /10"));
-	} else {
-		shown = ms;
-		seamDuration->setSingleStep(50);
-		seamDuration->setSuffix(QStringLiteral(" ms"));
-	}
+	auto show = [&]() {
+		QSignalBlocker sb(duration);
+		duration->setSingleStep(shownUnit == SEAM_UNIT_MS ? 50 : 1);
+		duration->setSuffix(shownUnit == SEAM_UNIT_SECONDS ? QStringLiteral(" /10")
+				    : shownUnit == SEAM_UNIT_MS      ? QStringLiteral(" ms")
+								     : QString());
+		duration->setValue(SeamFromMs(ms, shownUnit));
+	};
+	auto fixedCheck = [&]() {
+		auto it = transitions.find(transition->currentData().toString().toStdString());
+		bool fixed = it != transitions.end() && it->second && obs_transition_fixed(it->second);
+		duration->setEnabled(!fixed);
+		unit->setEnabled(!fixed);
+	};
 
-	QSignalBlocker sb(seamDuration);
-	seamDuration->setValue(std::max(1, shown));
-}
+	connect(unit, &QComboBox::currentIndexChanged, &dialog, [&]() {
+		ms = SeamToMs(duration->value(), shownUnit);
+		shownUnit = unit->currentData().toInt();
+		show();
+	});
+	connect(transition, &QComboBox::currentIndexChanged, &dialog, [&]() { fixedCheck(); });
 
-/* box → engine: the engine works in milliseconds */
-void OBSBasic::SeamDurationEdited()
-{
-	if (!seamDuration || !seamUnit)
+	show();
+	fixedCheck();
+
+	if (dialog.exec() != QDialog::Accepted)
 		return;
 
-	int v = seamDuration->value();
-	int unit = seamUnit->currentData().toInt();
-	int ms;
-
-	if (unit == SEAM_UNIT_FRAMES)
-		ms = (int)std::lround(v * 1000.0 / SeamFps());
-	else if (unit == SEAM_UNIT_SECONDS)
-		ms = v * 100;
-	else
-		ms = v;
-
-	SetTransitionDuration(ms);
-	/* SetTransitionDuration clamps to 50..20000 and stays silent when the
-	 * value did not change; show what the engine really has */
-	SeamSyncDuration();
+	SetCurrentTransition(transition->currentData().toString());
+	SetTransitionDuration(SeamToMs(duration->value(), shownUnit));
+	config_set_int(cfg, "obs2vmix", "DurationUnit", shownUnit);
+	config_save_safe(cfg, "tmp", nullptr);
 }
 
 void OBSBasic::SeamTake()
@@ -617,53 +617,63 @@ void OBSBasic::SetPreviewProgramMode(bool enabled)
 
 		RefreshQuickTransitions();
 
-		programLabel = new QLabel(QTStr("StudioMode.ProgramSceneLabel"), this);
-		programLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-		programLabel->setProperty("class", "label-preview-title");
-
 		programWidget = new QWidget();
 		programLayout = new QVBoxLayout();
 		programLayout->setContentsMargins(0, 0, 0, 0);
 		programLayout->setSpacing(0);
 
-		programLayout->addWidget(programLabel);
-		programLayout->addWidget(program);
-
-		programWidget->setLayout(programLayout);
-
 		if (switcherView) {
-			/* obs2vmix: Source and Record touch; the controls sit on the
-			 * seam bar above them and the scene strip below them */
+			/* obs2vmix: Source and Final touch, no text anywhere. A two
+			 * pixel tally line over each monitor, green and red, the
+			 * strip below them, every action in a right-click menu. */
+			auto tally = [](const char *color) {
+				QWidget *line = new QWidget();
+				line->setFixedHeight(2);
+				line->setStyleSheet(QString("background:%1;").arg(QString::fromUtf8(color)));
+				return line;
+			};
+			sourceTally = tally("#3ec26b");
+			finalTally = tally("#e0413a");
+			ui->previewTextLayout->insertWidget(0, sourceTally);
+			programLayout->addWidget(finalTally);
+			programLayout->addWidget(program);
+			programWidget->setLayout(programLayout);
+
 			ui->previewLayout->setSpacing(0);
 			ui->previewLayout->addWidget(programWidget);
 			programOptions->setParent(ui->previewLayout->parentWidget());
 			programOptions->hide();
 
-			ui->verticalLayout->insertWidget(0, seamBar);
-
-			/* the FX rack: its line under the Record monitor, its panel under the monitors */
+			/* the FX rack is a floating window, opened from the Final menu */
 			fxRack = new FxRack(this);
-			programLayout->addWidget(fxRack->Summary());
-			ui->verticalLayout->insertWidget(2, fxRack->Panel());
 
 			sceneStrip = new SceneStrip();
-			ui->verticalLayout->insertWidget(3, sceneStrip);
+			ui->verticalLayout->insertWidget(1, sceneStrip);
 			connect(sceneStrip.data(), &SceneStrip::SceneClicked, this,
 				[this](OBSSource scene) { SetCurrentScene(scene, false); });
 			connect(sceneStrip.data(), &SceneStrip::SceneDoubleClicked, this, &OBSBasic::OpenSceneEditor);
-			connect(sceneStrip.data(), &SceneStrip::RecordClicked, this, &OBSBasic::ToggleSceneRecording);
+			connect(sceneStrip.data(), &SceneStrip::SceneMenuRequested, this, &OBSBasic::SceneTileMenu);
 			connect(sceneStrip.data(), &SceneStrip::TilesChanged, this,
 				&OBSBasic::UpdateSceneRecordingStatus);
 
+			CreateSwitcherKeys(sceneStrip);
+
 			program->installEventFilter(new MonitorDoubleClick(program, [this]() { SeamSwapMonitor(); }));
 			ui->preview->installEventFilter(
-				new MonitorDoubleClick(seamBar, [this]() { SeamSwapMonitor(); }));
+				new MonitorDoubleClick(sceneStrip, [this]() { SeamSwapMonitor(); }));
 
 			seamSingleMonitor = false;
 			seamEditorOpen = false;
 			ApplyMonitorLayout();
 		} else {
 			/* the OBS view: Studio Mode as OBS lays it out */
+			programLabel = new QLabel(QTStr("StudioMode.ProgramSceneLabel"), this);
+			programLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+			programLabel->setProperty("class", "label-preview-title");
+			programLayout->addWidget(programLabel);
+			programLayout->addWidget(program);
+			programWidget->setLayout(programLayout);
+
 			ui->previewLayout->setSpacing(2);
 			ui->previewLayout->addWidget(programOptions);
 			ui->previewLayout->addWidget(programWidget);
@@ -693,7 +703,7 @@ void OBSBasic::SetPreviewProgramMode(bool enabled)
 		ui->previewLayout->setSpacing(2);
 		delete sceneStrip;
 		delete fxRack;
-		delete seamBar;
+		delete sourceTally;
 		delete programOptions;
 		delete program;
 		delete programLabel;
@@ -780,10 +790,10 @@ void OBSBasic::ResizeProgram(uint32_t cx, uint32_t cy)
 
 void OBSBasic::UpdatePreviewProgramIndicators()
 {
-	/* obs2vmix: the tally tags are always on in the vMix view; the OBS
-	 * view keeps OBS's optional "Preview: x" labels */
-	bool labels = previewProgramMode &&
-		      (switcherView || config_get_bool(App()->GetUserConfig(), "BasicWindow", "StudioModeLabels"));
+	/* obs2vmix: no text in the vMix view; the OBS view keeps OBS's
+	 * optional "Preview: x" labels */
+	bool labels = previewProgramMode && !switcherView &&
+		      config_get_bool(App()->GetUserConfig(), "BasicWindow", "StudioModeLabels");
 
 	ui->previewLabel->setVisible(labels);
 
@@ -795,21 +805,8 @@ void OBSBasic::UpdatePreviewProgramIndicators()
 		return;
 	}
 
-	auto tag = [](const QString &kind, const char *color, const char *name) {
-		return QString("<span style='color:%1;font-weight:600;letter-spacing:1px;'>%2</span>"
-			       "&nbsp;&nbsp;<span style='color:#d8dbe2;'>%3</span>")
-			.arg(QString::fromUtf8(color), kind.toHtmlEscaped(), QT_UTF8(name).toHtmlEscaped());
-	};
-
-	QString preview, program;
-	if (switcherView) {
-		preview = tag(QTStr("obs2vmix.Source"), "#3ec26b", obs_source_get_name(GetCurrentSceneSource()));
-		program = tag(QTStr("obs2vmix.Record"), "#e0413a", obs_source_get_name(GetProgramSource()));
-	} else {
-		preview = QTStr("StudioMode.PreviewSceneName")
-				  .arg(QT_UTF8(obs_source_get_name(GetCurrentSceneSource())));
-		program = QTStr("StudioMode.ProgramSceneName").arg(QT_UTF8(obs_source_get_name(GetProgramSource())));
-	}
+	QString preview = QTStr("StudioMode.PreviewSceneName").arg(QT_UTF8(obs_source_get_name(GetCurrentSceneSource())));
+	QString program = QTStr("StudioMode.ProgramSceneName").arg(QT_UTF8(obs_source_get_name(GetProgramSource())));
 
 	if (ui->previewLabel->text() != preview) {
 		ui->previewLabel->setText(preview);
@@ -825,12 +822,32 @@ OBSSource OBSBasic::GetProgramSource()
 	return OBSGetStrongRef(programScene);
 }
 
+/* right-click on the Final monitor */
 void OBSBasic::ProgramViewContextMenuRequested()
 {
 	QMenu popup(this);
 	QPointer<QMenu> studioProgramProjector;
 
-	studioProgramProjector = new QMenu(QTStr("Projector.Open.Program"));
+	if (switcherView) {
+		popup.addAction(QTStr("obs2vmix.Menu.Transition"), this, &OBSBasic::ShowTransitionDialog);
+		popup.addAction(QTStr("obs2vmix.Menu.AudioFx"), this, [this]() {
+			if (fxRack)
+				fxRack->Open();
+		});
+		FillTransitionConfigMenu(popup.addMenu(QTStr("obs2vmix.Menu.TransitionOptions")));
+		popup.addSeparator();
+
+		/* the main outputs: what the Final monitor shows goes to disk and to the stream */
+		QAction *record = popup.addAction(QTStr("obs2vmix.Menu.Record"), this, &OBSBasic::RecordActionTriggered);
+		record->setCheckable(true);
+		record->setChecked(RecordingActive());
+		QAction *stream = popup.addAction(QTStr("obs2vmix.Menu.Stream"), this, &OBSBasic::StreamActionTriggered);
+		stream->setCheckable(true);
+		stream->setChecked(StreamingActive());
+		popup.addSeparator();
+	}
+
+	studioProgramProjector = new QMenu(QTStr("Projector.Open.Program"), &popup);
 	AddProjectorMenuMonitors(studioProgramProjector, this, &OBSBasic::OpenStudioProgramProjector);
 	studioProgramProjector->addSeparator();
 	studioProgramProjector->addAction(QTStr("Projector.Window"), this, &OBSBasic::OpenStudioProgramWindow);
@@ -839,6 +856,9 @@ void OBSBasic::ProgramViewContextMenuRequested()
 
 	popup.addSeparator();
 	popup.addAction(QTStr("Screenshot.StudioProgram"), this, &OBSBasic::ScreenshotProgram);
+
+	if (switcherView)
+		AddSwitcherCommonActions(&popup);
 
 	popup.exec(QCursor::pos());
 }
@@ -1010,8 +1030,10 @@ void OBSBasic::CreateViewMenu()
 	viewObsAction->setToolTip(QTStr("obs2vmix.Menu.OBSTT"));
 	group->addAction(viewObsAction);
 
-	menu->addSeparator();
-	menu->addAction(ui->actionFullscreenInterface);
+	if (ui->actionFullscreenInterface) {
+		menu->addSeparator();
+		menu->addAction(ui->actionFullscreenInterface);
+	}
 
 	connect(viewVmixAction.data(), &QAction::triggered, this, [this]() { SetSwitcherView(true); });
 	connect(viewObsAction.data(), &QAction::triggered, this, [this]() { SetSwitcherView(false); });

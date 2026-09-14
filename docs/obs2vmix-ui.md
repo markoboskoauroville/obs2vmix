@@ -7,77 +7,83 @@ scenes, laid out like an Avid source/record pair.
 Interactive mockup, the reference for every decision below:
 https://claude.ai/code/artifact/2701246d-0dc3-48cf-bea8-3dfd47140d03
 
-## The window
+## The window (since 14 Sep 2026: zero text)
+
+Marko, 14.9.2026: "a very minimalistic user interface with zero text. There is no text at all.
+I just see images and previews. Everything is done through the right mouse button."
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│ Source ⧉                 [Transition ▾][ 25 ][frames ▾] CUT TAKE   Record│
-├──────────────────────────────────┬───────────────────────────────────┤
+┌──────────────────────────────────┬───────────────────────────────────┐
+│ ━━━━━━━━━━━━ green ━━━━━━━━━━━━━ │ ━━━━━━━━━━━━━ red ━━━━━━━━━━━━━━━ │
 │                                  │                                   │
-│   SOURCE  (preview, green)       │   RECORD  (program, red)          │
+│   SOURCE  (preview)              │   FINAL  (program)                │
 │                                  │                                   │
-├──────────────────────────────────┼───────────────────────────────────┤
-│ Source ▮▮▮▮▮▮▮▮▮▯▯▯  (meter)     │ FX [G][E][C][·][·][·][·][·]  Live ▾│
 ├──────────────────────────────────┴───────────────────────────────────┤
-│ Scenes                                       1–9 preview · space take│
 │ [ thumb ] [ thumb ] [ thumb ] [ thumb ] [ thumb ]  ‹ scroll for more ›│
-│ ○ Intro   ● Cam 1   ○ Cam 2   ○ Slides  ○ 2-shot                     │
-│         00:12:41 (412 GB · 50 fps)                                   │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-* **Source and Record touch.** No gap; one hairline seam. The window is resizable and the
-  two monitors share the width equally, 16:9 each.
-* **Transition on the seam.** Centered above the seam: transition dropdown (the vMix list:
-  Cut, Fade, Zoom, Wipe, Slide, Fly, CrossZoom, FlyRotate, Cube, CubeZoom, VerticalWipe,
-  VerticalSlide, Merge, Stinger), a length box, and a unit dropdown (frames / seconds / ms).
-  The engine works in milliseconds; frames convert at the output frame rate.
-* **Scene strip instead of a timeline.** Exactly five thumbnails visible, name under each,
-  horizontal scroll when there are more. Green frame = on Source, red frame = on Record.
-* **Click** a thumbnail → it loads into Source. **Space** → Take: Source goes to Record
-  through the chosen transition, and the old Record becomes the new Source (ATEM flip-flop).
-  Enter = Cut. Number keys 1–9 load a scene into Source.
+* **Two monitors and the strip, nothing else.** Source (the preview) on the left, Final (the
+  program) on the right, a two-pixel tally line over each (green, red), the five live
+  thumbnails under them. No labels, no buttons, no bars, no names. The window is resizable
+  and the two monitors share the width equally, 16:9 each.
+* **Right-click on Source** → Take (Space), Cut (Enter), Edit scene…, Record this scene,
+  the projector, a screenshot; then One monitor, Fullscreen, OBS Studio.
+* **Right-click on Final** → **Transition…** (a small dialog: the transition, its length, the
+  unit frames / seconds / ms; OK stores it and Space uses it from then on), **Audio effects…**
+  (the FX rack as a floating window, see below), Transition options (OBS's duplicate / edit
+  properties / swap), Record and Stream (the main outputs), the projector, a screenshot; then
+  One monitor, Fullscreen, OBS Studio.
+* **Right-click on a thumbnail** → Load into Source, Take this scene, Edit scene… (Close the
+  scene editor while it is open), Record this scene.
+* **Hover a thumbnail** → its number and name in a tooltip, and the recording line while it
+  records.
+* **Click** a thumbnail → it loads into Source. **Space** → Take: Source goes to Final
+  through the chosen transition, and the old Final becomes the new Source (ATEM flip-flop).
+  Enter = Cut. Number keys 1–9 load a scene into Source. The keys are quiet while a text
+  field or a button has the focus.
 * **Double-click** a thumbnail → the scene editor opens in the monitors' place: the scene's
-  sources, add source, overlay, filters, properties — OBS's own editing, unchanged. Closing
-  it collapses back into the thumbnail.
-* **Collapse (⧉)** → one monitor only, DaVinci style; double-click the monitor to swap
-  between Source and Record.
+  sources, add source, overlay, filters, properties — OBS's own editing, unchanged. Esc, or
+  the thumbnail's menu, closes it.
+* **One monitor** (in either menu) → one monitor only, DaVinci style; double-click the
+  monitor to swap between Source and Final.
+* Green frame on a thumbnail = on Source, red = on Final, grey = being edited.
+
+The Mode menu in the menu bar still switches between the vMix view and OBS Studio as it is;
+the same entry is at the bottom of both monitor menus.
 
 ## Record a scene
 
-Every thumbnail has a small red circle to the left of its name: a record button for that
-scene alone. It records the scene in the background to its own file, whether or not the
-scene is on Source or Record, and any number of scenes can record at once.
+Any scene records in the background to its own file, whether or not it is on Source or
+Final, and any number of scenes can record at once. *Record this scene* in the thumbnail's
+menu (or in the Source menu, for the scene on Source) starts it; the same entry, now ticked,
+stops it.
 
-* **Click the circle** → recording starts and the circle fills red (blinking). Click again →
-  it stops. The click does not load the scene into Source; the thumbnail still does that.
-* **Status line.** While a scene records, a second line the height of the title opens under
-  the name: `00:12:41 (412 GB · 50 fps)` — elapsed time, then in parentheses the free space
-  on the recording disk and the frame rate the encoder is actually achieving. The line is
-  reserved for every thumbnail and left empty when idle, so the strip never jumps.
-* **Dropped frames.** When frames are skipped the line turns amber and says how many:
-  `00:12:41 (412 GB · 47 fps · 12 dropped)`. Free space under the OBS limit turns the line red;
-  when the disk is full the output stops itself and the circle empties.
+* **The dot.** A recording scene carries a dot in the top-left corner of its thumbnail: red
+  and blinking while all is well, amber when frames drop, amber and blinking when the
+  recording disk is nearly full. When the disk is full the output stops itself and the dot
+  goes away.
+* **The line.** The tooltip of the thumbnail shows `00:12:41 (412 GB · 50 fps)`: elapsed time,
+  then the free space on the recording disk and the frame rate the encoder is achieving;
+  `· 12 dropped` is added when frames are skipped.
 * **Files** go to the normal OBS recording folder, named `<scene> <date> <time>.<ext>`, with
   the recording encoder and container from Settings → Output. Audio is the main mix (track 1)
   — a scene has no audio of its own; the operator picks the track in Settings.
 * **Cost.** Each recording is a full extra render and encode of that scene. Two or three run
-  comfortably with a hardware encoder; from the fourth on, the status line shows drops first.
+  comfortably with a hardware encoder; from the fourth on, the dot turns amber first.
 
 ## FX rack
 
-A thin line under the Record monitor is the audio chain that runs before the output: the
-skyscraper. One small window per slot, each showing only the first letter of the plugin in
-it (`·` when empty), a chip at the right saying `Live`, `Live + Rec` or `Bypass`.
+The audio chain that runs before the output. *Audio effects…* in the Final monitor's menu
+opens it as a floating window, Blue Cat PatchWork style: eight slots in signal order, each
+with an on/off button, the plugin selector (every VST 2.x plugin found in the OBS VST
+folders), the plugin's own preset list, a **UI** button opening the plugin's own window, and
+a **mix** knob (dry/wet); ▲▼ reorder. Every change is stored as it is made; **OK** closes the
+window, or it stays open and floats over the switcher for as long as the operator wants it.
 
-* **Click the line** → the rack expands beneath it, Blue Cat PatchWork style: eight slots in
-  signal order, each with an on/off button, the plugin selector (every VST 2.x plugin found in
-  the OBS VST folders), the plugin's own preset list, a **UI** button opening the plugin's
-  own window, and a **mix** knob (dry/wet). Drag a slot to reorder. Click the line again to
-  collapse; the letters stay as the summary.
 * **Apply to.** `Live` = the chain is heard on the stream only; the recording stays dry.
   `Live + Record` = the recording gets it too. `Bypass rack` mutes the whole chain without
-  losing anything; the skyscraper letters dim.
+  losing anything.
 * **Rack presets.** The whole rack — plugins, order, on/off, mix, and each plugin's state —
   saves under a name (`Save`, `Save as…`) and reloads from the dropdown. Racks are files in
   the profile, so they travel with it.
@@ -101,17 +107,17 @@ layout and add the strip, not the engine.
 
 | Need | Where in the tree | What changes |
 |---|---|---|
-| Preview + Program side by side | `frontend/widgets/OBSBasic_StudioMode.cpp` (`SetPreviewProgramMode`, `programWidget`, `programLayout`) | Studio Mode becomes the only mode; zero spacing; labels replaced by the tally tags |
-| Transition dropdown + duration | `frontend/widgets/OBSBasic_Transitions.cpp` (`SetTransition`, `ui->transitionDuration`) and `frontend/forms/OBSBasic.ui` | Move the combo + spinbox to a bar on the seam; add unit combo (frames/seconds/ms); frames ↔ ms via `obs_get_video_info().fps_num/fps_den` |
+| Preview + Program side by side | `frontend/widgets/OBSBasic_StudioMode.cpp` (`SetPreviewProgramMode`, `programWidget`, `programLayout`) | Studio Mode becomes the only mode; zero spacing; no labels, a two-pixel tally line over each monitor |
+| Transition dropdown + duration | `OBSBasic_StudioMode.cpp` (`ShowTransitionDialog`) | A dialog from the Final monitor's menu: combo, length, unit (frames/seconds/ms, the unit remembered in `obs2vmix/DurationUnit`); frames ↔ ms via `obs_get_video_info().fps_num/fps_den` |
 | Take on Space | `frontend/widgets/OBSBasic_Hotkeys.cpp`, `TransitionClicked()` | Default hotkey Space for the studio-mode transition; ignored while a text field has focus |
-| Scene thumbnails | new `frontend/components/SceneStrip.{cpp,hpp}`, modelled on `frontend/components/Multiview.cpp` | One `OBSQTDisplay` renders every scene into a row with `obs_source_video_render`, scrolled by an offset; labels as Qt widgets under the display; click → `SetCurrentScene(scene)` (studio: preview), double-click → editor |
+| Scene thumbnails | `frontend/components/SceneStrip.{cpp,hpp}`, modelled on `frontend/components/Multiview.cpp` | One `OBSQTDisplay` renders every scene into a row with `obs_source_video_render`, scrolled by an offset; no widgets under it: the name is a tooltip, the actions a right-click menu (`SceneMenuRequested`), the recording state a dot drawn in the corner |
 | Scene editor | existing sources dock + `OBSBasicPreview` | Opening = select scene for editing, show sources dock + preview in the monitors' area; closing restores the monitors |
 | Collapse to one monitor | `OBSBasic_StudioMode.cpp` | Hide `program` or `preview` widget, keep the other at full width |
 | Record a scene | new `frontend/utility/SceneRecorder.{cpp,hpp}`; API in `libobs/obs.h` (`obs_canvas_*`) | One `obs_canvas_create(name, &ovi, PROGRAM)` per recording with the scene in channel 0 (`obs_canvas_set_channel`); an `ffmpeg_muxer` output (as `SimpleOutput.cpp` builds `fileOutput`) whose video encoder is bound to `obs_canvas_get_video(canvas)` with `obs_encoder_set_video`, audio encoder to `obs_get_audio()`; `obs_output_set_media(output, canvas video, obs_get_audio())`; `path` = recording folder + scene name |
-| Status line | `SceneStrip`, timer at 4 Hz, modelled on `frontend/widgets/OBSBasicStats.cpp` | elapsed = `obs_output_get_total_frames / fps`; free disk = `os_get_free_disk_space(path)` (`platform.h`, same as `OBSBasic::LowDiskSpace`); fps = Δ`video_output_get_total_frames(canvas video)` per second; dropped = `video_output_get_skipped_frames(canvas video)` (encoder lag) + `obs_get_lagged_frames()` (render lag, global) — *not* `obs_output_get_frames_dropped`, which counts network drops |
+| Status line (tooltip + dot) | `SceneStrip`, timer at 4 Hz, modelled on `frontend/widgets/OBSBasicStats.cpp` | elapsed = `obs_output_get_total_frames / fps`; free disk = `os_get_free_disk_space(path)` (`platform.h`, same as `OBSBasic::LowDiskSpace`); fps = Δ`video_output_get_total_frames(canvas video)` per second; dropped = `video_output_get_skipped_frames(canvas video)` (encoder lag) + `obs_get_lagged_frames()` (render lag, global) — *not* `obs_output_get_frames_dropped`, which counts network drops |
 | FX rack, the chain | `plugins/obs-vst` (`VSTPlugin.cpp`, `vst_filter` with `filter_audio`) | Host each slot with the existing `VSTPlugin` class (load, `effSetSampleRate`/`effSetBlockSize`, `getParameter`/`setParameter`, `effGetChunk`/`effSetChunk` for presets, `EditorWidget` for the UI) but *outside* the filter: a `MasterChain` that runs the slots in order over a float buffer |
 | FX rack, where it runs | `libobs/obs-audio.c` `audio_callback()` after the *mix audio* loop, before `discard_audio` | New libobs hook `obs_set_master_audio_processor(cb, param)` called with `mixes[track].data` per track. Live = process track 1 only; Live + Record = also every track the recording output uses (`Settings → Output → Recording → Audio Track`). Bypass = hook installed, chain skipped |
-| Rack skyscraper + panel | new `frontend/components/FxRack.{cpp,hpp}` under `programWidget` in `OBSBasic_StudioMode.cpp` | Collapsed: `QToolButton` row of 18 px letters; expanded: eight slot rows, `QComboBox` filled from `obs-vst`'s scan (the `dir_list` in `obs-vst.cpp`) |
+| Rack window | `frontend/components/FxRack.{cpp,hpp}` | A `QDialog` with `Qt::Tool`, opened by `FxRack::Open()` from the Final menu: eight slot rows, `QComboBox` filled from `obs-vst`'s scan, OK at the foot |
 | Rack presets | `<profile>/racks/<name>.json` | `obs_data_t` with slots [plugin path, on, mix, chunk base64]; dropdown lists the folder |
 | MIDI | new `frontend/utility/MidiIn.{cpp,hpp}` on **libremidi** (header-friendly, CoreMIDI / WinMM / ALSA, added under `deps/`) | Input thread → `QueuedConnection` to the rack; `MidiMap` = `{cc|note, number} → control id`, saved as `<profile>/midi.json`; learn mode arms one control and takes the next message |
 | Registration of new files | `frontend/cmake/ui-components.cmake` | Add SceneStrip, FxRack, SceneRecorder, MidiIn sources; `libobs/CMakeLists.txt` for the hook |
@@ -170,6 +176,13 @@ by GitHub Actions.
 
 Phases 6–8 were added 13 Sep 2026 from Marko's spec of the same day; the mockup shows all three.
 Phases 3–8 were built 13 Sep 2026 on `obs2vmix/seam`.
+14 Sep 2026, afternoon, **zero text**: the seam bar (Source / Record tags, transition combo,
+CUT, TAKE, collapse, Done, OBS), the strip's header and hint, the names and record circles
+under the thumbnails, the FX summary line and the labels over the monitors are all gone.
+What is on the screen: two monitors with a tally line each, five thumbnails. Every action
+moved to the right mouse button (Source menu, Final menu, thumbnail menu); the transition is
+a dialog with OK, the FX rack a floating window with OK. Version obs2vmix-0.4.0.
+
 14 Sep 2026: Studio Mode is the only mode. The default is on, startup forces it on whatever an older
 OBS config saved, and the View menu toggle and its hotkey cannot switch it off; without this a
 profile with Studio Mode off showed plain OBS and none of the switcher (Marko: "the user interface

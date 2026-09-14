@@ -15,16 +15,15 @@
 
 #include <qt-wrappers.hpp>
 
-#include <QHBoxLayout>
 #include <QVBoxLayout>
-#include <QLabel>
 #include <QScrollBar>
-#include <QToolButton>
 #include <QMouseEvent>
 #include <QWheelEvent>
-#include <QFontMetrics>
-#include <QFontDatabase>
+#include <QHelpEvent>
+#include <QToolTip>
 #include <QResizeEvent>
+
+#include <util/platform.h>
 
 #include <algorithm>
 
@@ -37,6 +36,8 @@ static const uint32_t COLOR_FRAME = 0xFF3A3F4B;
 static const uint32_t COLOR_EDITING = 0xFF8B91A0;
 static const uint32_t COLOR_PREVIEW = 0xFF3EC26B;
 static const uint32_t COLOR_PROGRAM = 0xFFE0413A;
+static const uint32_t COLOR_REC = 0xFFE0413A;
+static const uint32_t COLOR_WARN = 0xFFF0B429;
 
 static const int TILE_PAD = 4; /* logical pixels around every thumbnail */
 
@@ -88,14 +89,32 @@ protected:
 	void mousePressEvent(QMouseEvent *event) override
 	{
 		OBSQTDisplay::mousePressEvent(event);
-		if (event->button() != Qt::LeftButton)
-			return;
 		int idx = strip->TileAt(event->pos());
-		if (idx >= 0) {
-			OBSSource s = strip->SceneAt(idx);
-			if (s)
-				emit strip->SceneClicked(s);
+		if (idx < 0)
+			return;
+		OBSSource s = strip->SceneAt(idx);
+		if (!s)
+			return;
+		if (event->button() == Qt::LeftButton)
+			emit strip->SceneClicked(s);
+		else if (event->button() == Qt::RightButton)
+			emit strip->SceneMenuRequested(s, event->globalPosition().toPoint());
+	}
+
+	/* the name and the recording line live in the tooltip */
+	bool event(QEvent *e) override
+	{
+		if (e->type() == QEvent::ToolTip) {
+			QHelpEvent *he = static_cast<QHelpEvent *>(e);
+			int idx = strip->TileAt(he->pos());
+			QString text = idx >= 0 ? strip->TileToolTip(idx) : QString();
+			if (text.isEmpty())
+				QToolTip::hideText();
+			else
+				QToolTip::showText(he->globalPos(), text, this);
+			return true;
 		}
+		return OBSQTDisplay::event(e);
 	}
 
 	void mouseDoubleClickEvent(QMouseEvent *event) override
@@ -136,89 +155,16 @@ SceneStrip::SceneStrip(QWidget *parent) : QWidget(parent)
 	setObjectName("obs2vmixSceneStrip");
 
 	QVBoxLayout *layout = new QVBoxLayout(this);
-	layout->setContentsMargins(6, 4, 6, 4);
-	layout->setSpacing(2);
+	layout->setContentsMargins(0, 0, 0, 0);
+	layout->setSpacing(0);
 
-	/* header: "Scenes · 8", hint on the right */
-	QHBoxLayout *head = new QHBoxLayout();
-	head->setContentsMargins(0, 0, 0, 0);
-	QLabel *title = new QLabel(QTStr("obs2vmix.Scenes"));
-	title->setStyleSheet("color:#8b91a0;font-size:11px;letter-spacing:1px;");
-	countLabel = new QLabel();
-	countLabel->setStyleSheet("color:#5d6270;font-size:11px;");
-	QLabel *hint = new QLabel(QTStr("obs2vmix.StripHint"));
-	hint->setStyleSheet("color:#5d6270;font-size:11px;");
-	head->addWidget(title);
-	head->addWidget(countLabel);
-	head->addStretch(1);
-	head->addWidget(hint);
-	layout->addLayout(head);
-
-	/* the thumbnails */
+	/* the thumbnails, and nothing else */
 	display = new SceneStripDisplay(this);
 	layout->addWidget(display);
 
 	connect(display, &OBSQTDisplay::DisplayCreated, this, [this](OBSQTDisplay *window) {
 		obs_display_add_draw_callback(window->GetDisplay(), SceneStrip::Render, this);
 	});
-
-	/* the names, one column per thumbnail */
-	tileLayout = new QHBoxLayout();
-	tileLayout->setContentsMargins(0, 0, 0, 0);
-	tileLayout->setSpacing(0);
-
-	QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-	mono.setPointSizeF(mono.pointSizeF() * 0.85);
-
-	for (int i = 0; i < VISIBLE; i++) {
-		Tile t;
-		t.box = new QWidget();
-		t.box->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-		QVBoxLayout *col = new QVBoxLayout(t.box);
-		col->setContentsMargins(TILE_PAD, 0, TILE_PAD, 0);
-		col->setSpacing(0);
-
-		QHBoxLayout *row = new QHBoxLayout();
-		row->setContentsMargins(0, 0, 0, 0);
-		row->setSpacing(6);
-
-		t.rec = new QToolButton();
-		t.rec->setCheckable(true);
-		t.rec->setFixedSize(14, 14);
-		t.rec->setCursor(Qt::PointingHandCursor);
-		t.rec->setToolTip(QTStr("obs2vmix.RecordScene"));
-		t.rec->setStyleSheet("QToolButton{border:1.5px solid #e0413a;border-radius:7px;background:transparent;}"
-				     "QToolButton:hover{background:rgba(224,65,58,0.25);}"
-				     "QToolButton:checked{background:#e0413a;}");
-		connect(t.rec, &QToolButton::clicked, this, [this, i]() {
-			OBSSource s = SceneAt(offset + i);
-			if (s)
-				emit RecordClicked(s);
-			else if (i < (int)tiles.size())
-				tiles[i].rec->setChecked(false);
-		});
-
-		t.name = new QLabel();
-		t.name->setAlignment(Qt::AlignCenter);
-		t.name->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-
-		row->addWidget(t.rec);
-		row->addWidget(t.name, 1);
-
-		t.status = new QLabel();
-		t.status->setAlignment(Qt::AlignCenter);
-		t.status->setFont(mono);
-		t.status->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-		t.status->setStyleSheet("color:#5d6270;");
-		t.status->setMinimumHeight(t.name->sizeHint().height());
-
-		col->addLayout(row);
-		col->addWidget(t.status);
-
-		tileLayout->addWidget(t.box, 1);
-		tiles.push_back(t);
-	}
-	layout->addLayout(tileLayout);
 
 	/* scrolling, shown only when there are more scenes than tiles */
 	scrollBar = new QScrollBar(Qt::Horizontal);
@@ -363,21 +309,35 @@ void SceneStrip::SetEditing(obs_source_t *scene)
 void SceneStrip::SetRecording(int index, bool on)
 {
 	int i = index - offset;
-	if (i < 0 || i >= (int)tiles.size())
+	if (i < 0 || i >= VISIBLE)
 		return;
-	QSignalBlocker sb(tiles[i].rec);
-	tiles[i].rec->setChecked(on);
-	tiles[i].rec->setToolTip(on ? QTStr("obs2vmix.StopRecordScene") : QTStr("obs2vmix.RecordScene"));
+	std::lock_guard<std::mutex> lock(mutex);
+	tiles[i].recording = on;
 }
 
 void SceneStrip::SetStatus(int index, const QString &text, int level)
 {
 	int i = index - offset;
-	if (i < 0 || i >= (int)tiles.size())
+	if (i < 0 || i >= VISIBLE)
 		return;
-	tiles[i].status->setText(text);
-	const char *color = level >= 2 ? "#e0413a" : level == 1 ? "#f0b429" : text.isEmpty() ? "#5d6270" : "#d8dbe2";
-	tiles[i].status->setStyleSheet(QString("color:%1;").arg(color));
+	std::lock_guard<std::mutex> lock(mutex);
+	tiles[i].status = text;
+	tiles[i].level = level;
+}
+
+QString SceneStrip::TileToolTip(int index) const
+{
+	OBSSource s = SceneAt(index);
+	if (!s)
+		return QString();
+	QString text = QString("%1 · %2").arg(index + 1).arg(QT_UTF8(obs_source_get_name(s)));
+	int i = index - offset;
+	if (i >= 0 && i < VISIBLE) {
+		std::lock_guard<std::mutex> lock(mutex);
+		if (tiles[i].recording && !tiles[i].status.isEmpty())
+			text += "\n" + tiles[i].status;
+	}
+	return text;
 }
 
 int SceneStrip::TileAt(const QPoint &pos) const
@@ -394,46 +354,13 @@ int SceneStrip::TileAt(const QPoint &pos) const
 
 void SceneStrip::UpdateTiles()
 {
-	OBSBasic *main = OBSBasic::Get();
-	OBSSource preview = main ? main->GetCurrentSceneSource() : nullptr;
-	OBSSource program = main ? main->GetProgramSource() : nullptr;
-
-	int count = Count();
-	countLabel->setText(count > VISIBLE ? QString("· %1").arg(count) : QString());
-
-	int tileWidth = width() / VISIBLE - 2 * TILE_PAD - 24;
-	for (int i = 0; i < VISIBLE; i++) {
-		Tile &t = tiles[i];
-		int idx = offset + i;
-		OBSSource s = SceneAt(idx);
-		bool has = !!s;
-		t.rec->setVisible(has);
-		t.name->setVisible(true);
-		if (!has) {
-			t.name->setText(QString());
-			t.status->setText(QString());
-			continue;
-		}
-		QString name = QString("%1 · %2").arg(idx + 1).arg(QT_UTF8(obs_source_get_name(s)));
-		QFontMetrics fm(t.name->font());
-		t.name->setText(fm.elidedText(name, Qt::ElideRight, std::max(40, tileWidth)));
-		t.name->setToolTip(name);
-
-		bool onProgram = program && s.Get() == program.Get();
-		bool onPreview = preview && s.Get() == preview.Get();
-		QString style = "font-size:12px;";
-		if (onProgram)
-			style += "color:#ffffff;font-weight:600;";
-		else if (onPreview)
-			style += "color:#3ec26b;";
-		else
-			style += "color:#d8dbe2;";
-		t.name->setStyleSheet(style);
-		QSignalBlocker sb(t.rec);
-		t.rec->setChecked(false);
-		t.status->setText(QString());
+	/* the recording marks belong to scenes, not to slots: after a scroll
+	 * or a list change they are cleared here and re-applied by the owner */
+	{
+		std::lock_guard<std::mutex> lock(mutex);
+		for (int i = 0; i < VISIBLE; i++)
+			tiles[i] = TileState();
 	}
-
 	emit TilesChanged();
 }
 
@@ -508,13 +435,19 @@ void SceneStrip::Render(void *data, uint32_t cx, uint32_t cy)
 		return;
 
 	std::vector<OBSSource> visible;
+	TileState state[VISIBLE];
 	OBSSource editingSrc;
 	{
 		std::lock_guard<std::mutex> lock(strip->mutex);
 		for (int i = strip->offset; i < strip->offset + VISIBLE && i < (int)strip->scenes.size(); i++)
 			visible.push_back(OBSGetStrongRef(strip->scenes[i]));
+		for (int i = 0; i < VISIBLE; i++)
+			state[i] = strip->tiles[i];
 		editingSrc = OBSGetStrongRef(strip->editing);
 	}
+
+	/* the recording dot blinks: on for half a second, off for half */
+	bool blinkOn = (os_gettime_ns() / 500000000ULL) % 2 == 0;
 
 	OBSSource previewSrc = main->GetCurrentSceneSource();
 	OBSSource programSrc = main->GetProgramSource();
@@ -585,6 +518,20 @@ void SceneStrip::Render(void *data, uint32_t cx, uint32_t cy)
 			    (float)ovi.base_height);
 		obs_source_video_render(src);
 		regionEnd();
+
+		/* a recording scene: a dot in the corner. Red and blinking while
+		 * all is well, amber when frames drop, amber and blinking when
+		 * the disk is nearly full. */
+		const TileState &st = state[i];
+		if (st.recording) {
+			bool lit = st.level == 1 ? true : blinkOn;
+			if (lit) {
+				float d = 10.0f * dpr;
+				float m = 6.0f * dpr;
+				paintBox(ix + m - dpr, iy + m - dpr, d + 2.0f * dpr, d + 2.0f * dpr, COLOR_BLACK);
+				paintBox(ix + m, iy + m, d, d, st.level >= 1 ? COLOR_WARN : COLOR_REC);
+			}
+		}
 	}
 
 	gs_projection_pop();

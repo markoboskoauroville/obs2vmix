@@ -239,6 +239,12 @@ void OBSBasic::ResizePreview(uint32_t cx, uint32_t cy)
 
 void OBSBasic::on_preview_customContextMenuRequested()
 {
+	/* obs2vmix: the Source monitor has its own menu; while a scene is
+	 * being edited it is OBS's source menu, as in OBS */
+	if (switcherView && IsPreviewProgramMode() && !seamEditorOpen) {
+		SourceViewContextMenu();
+		return;
+	}
 	CreateSourcePopupMenu(GetTopSelectedSourceItem(), true);
 }
 

@@ -1498,14 +1498,10 @@ private:
 	QPointer<QPushButton> transitionButton;
 	QPointer<QMenu> perSceneTransitionMenu;
 
-	/* obs2vmix: transition controls on the seam between Source and Record */
-	QPointer<QComboBox> seamTransitions;
-	QPointer<QSpinBox> seamDuration;
-	QPointer<QComboBox> seamUnit;
-	void CreateSeamControls(QBoxLayout *layout);
-	void SeamSyncTransition();
-	void SeamSyncDuration();
-	void SeamDurationEdited();
+	/* obs2vmix: the transition and its length are set in a small dialog
+	 * from the Final monitor's right-click menu; Space then uses them */
+	void ShowTransitionDialog();
+	void FillTransitionConfigMenu(QMenu *menu);
 	void SeamCut();
 	void SeamTake();
 	static bool SeamKeyIsFree();
@@ -1524,17 +1520,21 @@ public:
 	void SetSwitcherView(bool vmix);
 
 private:
-	/* obs2vmix: the seam bar, the monitors and the scene strip */
-	QPointer<QWidget> seamBar;
+	/* obs2vmix: the monitors, their right-click menus and the scene strip.
+	 * Nothing on the screen is text: every action is in a menu on the
+	 * right mouse button. */
 	QPointer<SceneStrip> sceneStrip;
 	QPointer<FxRack> fxRack;
-	QPointer<QToolButton> seamCollapseButton;
-	QPointer<QPushButton> seamEditorDone;
+	QPointer<QWidget> sourceTally;
+	QPointer<QWidget> finalTally;
 	bool seamSingleMonitor = false;
 	bool seamSingleShowsProgram = true;
 	bool seamEditorOpen = false;
 	bool seamSourcesDockWasVisible = true;
-	void CreateSeamBar();
+	void CreateSwitcherKeys(QWidget *owner);
+	void SourceViewContextMenu();
+	void SceneTileMenu(OBSSource scene, const QPoint &pos);
+	void AddSwitcherCommonActions(QMenu *menu);
 	void ApplyMonitorLayout();
 	void SeamToggleCollapse();
 	void SeamSwapMonitor();

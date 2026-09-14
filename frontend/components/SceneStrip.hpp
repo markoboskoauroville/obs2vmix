@@ -1,9 +1,11 @@
 /******************************************************************************
     obs2vmix: the scene strip
 
-    Five live thumbnails in a row instead of a timeline. One OBSQTDisplay
-    renders every visible scene (the way the multiview does), the names and
-    the per-scene record controls are Qt widgets under it.
+    Five live thumbnails in a row instead of a timeline, and nothing else:
+    no names, no buttons, no text. One OBSQTDisplay renders every visible
+    scene (the way the multiview does); the name and the recording status
+    are a tooltip, the actions are a right-click menu, a recording scene
+    carries a blinking dot.
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -18,6 +20,8 @@
 
 #include <QWidget>
 #include <QPointer>
+#include <QPoint>
+#include <QString>
 
 #include <atomic>
 #include <memory>
@@ -25,10 +29,7 @@
 #include <vector>
 
 class OBSQTDisplay;
-class QLabel;
 class QScrollBar;
-class QToolButton;
-class QHBoxLayout;
 class SceneStripDisplay;
 
 class SceneStrip : public QWidget {
@@ -43,11 +44,10 @@ public:
 public slots:
 	/* re-read the scene list from the frontend (UI thread) */
 	void Refresh();
-	/* names, colours and elision of the labels under the thumbnails */
+	/* after a scroll or a list change: the per-tile state is re-applied */
 	void UpdateTiles();
 
 public:
-
 	int Count() const;
 	OBSSource SceneAt(int index) const;
 	int IndexOf(obs_source_t *scene) const;
@@ -55,12 +55,15 @@ public:
 	/* make index visible, scrolling the strip if needed */
 	void ScrollTo(int index);
 
-	/* the scene whose editor is open gets a dashed frame */
+	/* the scene whose editor is open gets a grey frame */
 	void SetEditing(obs_source_t *scene);
 
-	/* per-scene recording state, drawn by the tile (phase 6 drives it) */
+	/* per-scene recording state: the dot on the thumbnail, the tooltip */
 	void SetRecording(int index, bool on);
 	void SetStatus(int index, const QString &text, int level);
+
+	/* the tooltip for a tile: "3 · Cam 1", then the recording line */
+	QString TileToolTip(int index) const;
 
 protected:
 	void resizeEvent(QResizeEvent *event) override;
@@ -68,16 +71,14 @@ protected:
 signals:
 	void SceneClicked(OBSSource scene);
 	void SceneDoubleClicked(OBSSource scene);
-	void RecordClicked(OBSSource scene);
-	/* after a scroll or list change: record marks and status lines must be re-applied */
+	void SceneMenuRequested(OBSSource scene, const QPoint &globalPos);
 	void TilesChanged();
 
 private:
-	struct Tile {
-		QWidget *box = nullptr;
-		QToolButton *rec = nullptr;
-		QLabel *name = nullptr;
-		QLabel *status = nullptr;
+	struct TileState {
+		bool recording = false;
+		int level = 0;
+		QString status;
 	};
 
 	static void Render(void *data, uint32_t cx, uint32_t cy);
@@ -91,13 +92,11 @@ private:
 
 	SceneStripDisplay *display = nullptr;
 	QScrollBar *scrollBar = nullptr;
-	QHBoxLayout *tileLayout = nullptr;
-	QLabel *countLabel = nullptr;
-	std::vector<Tile> tiles;
 
 	mutable std::mutex mutex;
 	std::vector<OBSWeakSource> scenes;
 	std::vector<std::unique_ptr<OBSSignal>> renameSignals;
+	TileState tiles[VISIBLE];
 	int offset = 0;
 	OBSWeakSource editing;
 	std::atomic<int> logicalWidth{0};
