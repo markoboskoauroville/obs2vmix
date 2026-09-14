@@ -170,3 +170,7 @@ by GitHub Actions.
 
 Phases 6–8 were added 13 Sep 2026 from Marko's spec of the same day; the mockup shows all three.
 Phases 3–8 were built 13 Sep 2026 on `obs2vmix/seam`.
+14 Sep 2026: Studio Mode is the only mode. The default is on, startup forces it on whatever an older
+OBS config saved, and the View menu toggle and its hotkey cannot switch it off; without this a
+profile with Studio Mode off showed plain OBS and none of the switcher (Marko: "the user interface
+of OBS is persistent").
