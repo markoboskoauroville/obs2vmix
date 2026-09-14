@@ -1089,12 +1089,10 @@ void OBSBasic::OBSInit()
 	swapScenesMode = config_get_bool(App()->GetUserConfig(), "BasicWindow", "SwapScenesMode");
 	editPropertiesMode = config_get_bool(App()->GetUserConfig(), "BasicWindow", "EditPropertiesMode");
 
-	if (!opt_studio_mode) {
-		SetPreviewProgramMode(config_get_bool(App()->GetUserConfig(), "BasicWindow", "PreviewProgramMode"));
-	} else {
-		SetPreviewProgramMode(true);
-		opt_studio_mode = false;
-	}
+	/* obs2vmix: the Source / Record switcher is the window. Studio Mode is
+	 * always on, whatever an older OBS config saved. */
+	SetPreviewProgramMode(true);
+	opt_studio_mode = false;
 
 #define SET_VISIBILITY(name, control)                                                                \
 	do {                                                                                         \

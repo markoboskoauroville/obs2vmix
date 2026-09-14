@@ -373,7 +373,8 @@ void OBSBasic::SeamSelectScene(int index)
 
 void OBSBasic::TogglePreviewProgramMode()
 {
-	SetPreviewProgramMode(!IsPreviewProgramMode());
+	/* obs2vmix: there is no other mode; the switcher stays */
+	SetPreviewProgramMode(true);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -798,7 +799,8 @@ void OBSBasic::EnablePreviewProgram()
 
 void OBSBasic::DisablePreviewProgram()
 {
-	SetPreviewProgramMode(false);
+	/* obs2vmix: the switcher cannot be switched off */
+	SetPreviewProgramMode(true);
 }
 
 void OBSBasic::OpenStudioProgramProjector()

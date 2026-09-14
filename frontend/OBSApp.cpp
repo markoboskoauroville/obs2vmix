@@ -354,7 +354,8 @@ void OBSApp::InitUserConfigDefaults()
 	config_set_default_string(userConfig, "General", "HotkeyFocusType", "NeverDisableHotkeys");
 
 	config_set_default_bool(userConfig, "BasicWindow", "PreviewEnabled", true);
-	config_set_default_bool(userConfig, "BasicWindow", "PreviewProgramMode", false);
+	/* obs2vmix: the switcher window is Studio Mode; it is the only mode */
+	config_set_default_bool(userConfig, "BasicWindow", "PreviewProgramMode", true);
 	config_set_default_bool(userConfig, "BasicWindow", "SceneDuplicationMode", true);
 	config_set_default_bool(userConfig, "BasicWindow", "SwapScenesMode", true);
 	config_set_default_bool(userConfig, "BasicWindow", "SnappingEnabled", true);
