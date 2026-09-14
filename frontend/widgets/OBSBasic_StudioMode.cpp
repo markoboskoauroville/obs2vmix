@@ -41,6 +41,8 @@
 #include <QToolButton>
 #include <QEvent>
 #include <QTimer>
+#include <QActionGroup>
+#include <QDockWidget>
 
 #include <functional>
 
@@ -129,12 +131,29 @@ void OBSBasic::CreateProgramOptions()
 	connect(tBar, &QSlider::sliderReleased, this, &OBSBasic::TBarReleased);
 
 	layout->addStretch(0);
+	if (!switcherView) {
+		/* the OBS view: the classic column with the Transition button */
+		QHBoxLayout *mainButtonLayout = new QHBoxLayout();
+		mainButtonLayout->setSpacing(2);
+
+		transitionButton = new QPushButton(QTStr("Transition"));
+		transitionButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+
+		QPushButton *configTransitions = new QPushButton();
+		configTransitions->setProperty("class", "icon-dots-vert");
+
+		mainButtonLayout->addWidget(transitionButton);
+		mainButtonLayout->addWidget(configTransitions);
+		layout->addLayout(mainButtonLayout);
+
+		connect(transitionButton.data(), &QAbstractButton::clicked, this, &OBSBasic::TransitionClicked);
+		connect(configTransitions, &QAbstractButton::clicked, this, &OBSBasic::ShowTransitionConfigMenu);
+	}
 	layout->addLayout(quickTransitionsLayout);
 	layout->addWidget(tBar);
 	layout->addStretch(0);
 
 	programOptions->setLayout(layout);
-	programOptions->hide();
 
 	auto onAdd = [this]() {
 		QScopedPointer<QMenu> menu(CreateTransitionMenu(this, nullptr));
@@ -143,7 +162,68 @@ void OBSBasic::CreateProgramOptions()
 
 	connect(addQuickTransition, &QAbstractButton::clicked, this, onAdd);
 
-	CreateSeamBar();
+	if (switcherView) {
+		programOptions->hide();
+		CreateSeamBar();
+	}
+}
+
+/* the "..." menu next to Take / Transition */
+void OBSBasic::ShowTransitionConfigMenu()
+{
+	QMenu menu(this);
+	QAction *action;
+
+	auto toggleEditProperties = [this]() {
+		editPropertiesMode = !editPropertiesMode;
+
+		OBSSource actualScene = OBSGetStrongRef(programScene);
+		if (actualScene) {
+			TransitionToScene(actualScene, true);
+		}
+	};
+
+	auto toggleSwapScenesMode = [this]() {
+		swapScenesMode = !swapScenesMode;
+	};
+
+	auto toggleSceneDuplication = [this]() {
+		sceneDuplicationMode = !sceneDuplicationMode;
+
+		OBSSource actualScene = OBSGetStrongRef(programScene);
+		if (actualScene) {
+			TransitionToScene(actualScene, true);
+		}
+	};
+
+	auto showToolTip = [&]() {
+		QAction *act = menu.activeAction();
+		QToolTip::showText(QCursor::pos(), act->toolTip(), &menu, menu.actionGeometry(act));
+	};
+
+	action = menu.addAction(QTStr("QuickTransitions.DuplicateScene"));
+	action->setToolTip(QTStr("QuickTransitions.DuplicateSceneTT"));
+	action->setCheckable(true);
+	action->setChecked(sceneDuplicationMode);
+	connect(action, &QAction::triggered, this, toggleSceneDuplication);
+	connect(action, &QAction::hovered, action, showToolTip);
+
+	action = menu.addAction(QTStr("QuickTransitions.EditProperties"));
+	action->setToolTip(QTStr("QuickTransitions.EditPropertiesTT"));
+	action->setCheckable(true);
+	action->setChecked(editPropertiesMode);
+	action->setEnabled(sceneDuplicationMode);
+	connect(action, &QAction::triggered, this, toggleEditProperties);
+	connect(action, &QAction::hovered, action, showToolTip);
+
+	action = menu.addAction(QTStr("QuickTransitions.SwapScenes"));
+	action->setToolTip(QTStr("QuickTransitions.SwapScenesTT"));
+	action->setCheckable(true);
+	action->setChecked(swapScenesMode);
+	connect(action, &QAction::triggered, this, toggleSwapScenesMode);
+	connect(action, &QAction::hovered, action, showToolTip);
+
+	menu.exec(QCursor::pos());
 }
 
 /* the bar on the seam: Source ⧉ | transition, length, unit, CUT, TAKE ⋮ | Record */
@@ -196,6 +276,13 @@ void OBSBasic::CreateSeamBar()
 	recordTag->setStyleSheet("color:#e0413a;font-weight:600;letter-spacing:1px;");
 	bar->addWidget(recordTag);
 
+	QToolButton *toObs = new QToolButton();
+	toObs->setText(QStringLiteral("OBS"));
+	toObs->setToolTip(QTStr("obs2vmix.Menu.OBSTT"));
+	toObs->setAutoRaise(true);
+	connect(toObs, &QToolButton::clicked, this, [this]() { SetSwitcherView(false); });
+	bar->addWidget(toObs);
+
 	/* Space = Take, Enter = Cut, 1-9 = load a scene into Source, Esc =
 	 * close the editor; only while no text field or button has the focus.
 	 * Parented to the bar so the shortcuts die with studio mode. */
@@ -223,63 +310,7 @@ void OBSBasic::CreateSeamBar()
 		});
 	}
 
-	auto onConfig = [this]() {
-		QMenu menu(this);
-		QAction *action;
-
-		auto toggleEditProperties = [this]() {
-			editPropertiesMode = !editPropertiesMode;
-
-			OBSSource actualScene = OBSGetStrongRef(programScene);
-			if (actualScene) {
-				TransitionToScene(actualScene, true);
-			}
-		};
-
-		auto toggleSwapScenesMode = [this]() {
-			swapScenesMode = !swapScenesMode;
-		};
-
-		auto toggleSceneDuplication = [this]() {
-			sceneDuplicationMode = !sceneDuplicationMode;
-
-			OBSSource actualScene = OBSGetStrongRef(programScene);
-			if (actualScene) {
-				TransitionToScene(actualScene, true);
-			}
-		};
-
-		auto showToolTip = [&]() {
-			QAction *act = menu.activeAction();
-			QToolTip::showText(QCursor::pos(), act->toolTip(), &menu, menu.actionGeometry(act));
-		};
-
-		action = menu.addAction(QTStr("QuickTransitions.DuplicateScene"));
-		action->setToolTip(QTStr("QuickTransitions.DuplicateSceneTT"));
-		action->setCheckable(true);
-		action->setChecked(sceneDuplicationMode);
-		connect(action, &QAction::triggered, this, toggleSceneDuplication);
-		connect(action, &QAction::hovered, action, showToolTip);
-
-		action = menu.addAction(QTStr("QuickTransitions.EditProperties"));
-		action->setToolTip(QTStr("QuickTransitions.EditPropertiesTT"));
-		action->setCheckable(true);
-		action->setChecked(editPropertiesMode);
-		action->setEnabled(sceneDuplicationMode);
-		connect(action, &QAction::triggered, this, toggleEditProperties);
-		connect(action, &QAction::hovered, action, showToolTip);
-
-		action = menu.addAction(QTStr("QuickTransitions.SwapScenes"));
-		action->setToolTip(QTStr("QuickTransitions.SwapScenesTT"));
-		action->setCheckable(true);
-		action->setChecked(swapScenesMode);
-		connect(action, &QAction::triggered, this, toggleSwapScenesMode);
-		connect(action, &QAction::hovered, action, showToolTip);
-
-		menu.exec(QCursor::pos());
-	};
-
-	connect(configTransitions, &QAbstractButton::clicked, this, onConfig);
+	connect(configTransitions, &QAbstractButton::clicked, this, &OBSBasic::ShowTransitionConfigMenu);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -373,8 +404,8 @@ void OBSBasic::SeamSelectScene(int index)
 
 void OBSBasic::TogglePreviewProgramMode()
 {
-	/* obs2vmix: there is no other mode; the switcher stays */
-	SetPreviewProgramMode(true);
+	/* obs2vmix: in the vMix view the switcher stays; the OBS view toggles as OBS does */
+	SetPreviewProgramMode(switcherView ? true : !IsPreviewProgramMode());
 }
 
 /* ---------------------------------------------------------------------- */
@@ -599,34 +630,44 @@ void OBSBasic::SetPreviewProgramMode(bool enabled)
 
 		programWidget->setLayout(programLayout);
 
-		/* obs2vmix: Source and Record touch; the controls sit on the
-		 * seam bar above them and the scene strip below them */
-		ui->previewLayout->setSpacing(0);
-		ui->previewLayout->addWidget(programWidget);
-		programOptions->setParent(ui->previewLayout->parentWidget());
-		programOptions->hide();
+		if (switcherView) {
+			/* obs2vmix: Source and Record touch; the controls sit on the
+			 * seam bar above them and the scene strip below them */
+			ui->previewLayout->setSpacing(0);
+			ui->previewLayout->addWidget(programWidget);
+			programOptions->setParent(ui->previewLayout->parentWidget());
+			programOptions->hide();
 
-		ui->verticalLayout->insertWidget(0, seamBar);
+			ui->verticalLayout->insertWidget(0, seamBar);
 
-		/* the FX rack: its line under the Record monitor, its panel under the monitors */
-		fxRack = new FxRack(this);
-		programLayout->addWidget(fxRack->Summary());
-		ui->verticalLayout->insertWidget(2, fxRack->Panel());
+			/* the FX rack: its line under the Record monitor, its panel under the monitors */
+			fxRack = new FxRack(this);
+			programLayout->addWidget(fxRack->Summary());
+			ui->verticalLayout->insertWidget(2, fxRack->Panel());
 
-		sceneStrip = new SceneStrip();
-		ui->verticalLayout->insertWidget(3, sceneStrip);
-		connect(sceneStrip.data(), &SceneStrip::SceneClicked, this,
-			[this](OBSSource scene) { SetCurrentScene(scene, false); });
-		connect(sceneStrip.data(), &SceneStrip::SceneDoubleClicked, this, &OBSBasic::OpenSceneEditor);
-		connect(sceneStrip.data(), &SceneStrip::RecordClicked, this, &OBSBasic::ToggleSceneRecording);
-		connect(sceneStrip.data(), &SceneStrip::TilesChanged, this, &OBSBasic::UpdateSceneRecordingStatus);
+			sceneStrip = new SceneStrip();
+			ui->verticalLayout->insertWidget(3, sceneStrip);
+			connect(sceneStrip.data(), &SceneStrip::SceneClicked, this,
+				[this](OBSSource scene) { SetCurrentScene(scene, false); });
+			connect(sceneStrip.data(), &SceneStrip::SceneDoubleClicked, this, &OBSBasic::OpenSceneEditor);
+			connect(sceneStrip.data(), &SceneStrip::RecordClicked, this, &OBSBasic::ToggleSceneRecording);
+			connect(sceneStrip.data(), &SceneStrip::TilesChanged, this,
+				&OBSBasic::UpdateSceneRecordingStatus);
 
-		program->installEventFilter(new MonitorDoubleClick(program, [this]() { SeamSwapMonitor(); }));
-		ui->preview->installEventFilter(new MonitorDoubleClick(seamBar, [this]() { SeamSwapMonitor(); }));
+			program->installEventFilter(new MonitorDoubleClick(program, [this]() { SeamSwapMonitor(); }));
+			ui->preview->installEventFilter(
+				new MonitorDoubleClick(seamBar, [this]() { SeamSwapMonitor(); }));
 
-		seamSingleMonitor = false;
-		seamEditorOpen = false;
-		ApplyMonitorLayout();
+			seamSingleMonitor = false;
+			seamEditorOpen = false;
+			ApplyMonitorLayout();
+		} else {
+			/* the OBS view: Studio Mode as OBS lays it out */
+			ui->previewLayout->setSpacing(2);
+			ui->previewLayout->addWidget(programOptions);
+			ui->previewLayout->addWidget(programWidget);
+			ui->previewLayout->setAlignment(programOptions, Qt::AlignCenter);
+		}
 
 		sizeObserver = new PreviewProgramSizeObserver(ui->preview, program, this);
 
@@ -738,8 +779,10 @@ void OBSBasic::ResizeProgram(uint32_t cx, uint32_t cy)
 
 void OBSBasic::UpdatePreviewProgramIndicators()
 {
-	/* obs2vmix: the tally tags are always on in studio mode */
-	bool labels = previewProgramMode;
+	/* obs2vmix: the tally tags are always on in the vMix view; the OBS
+	 * view keeps OBS's optional "Preview: x" labels */
+	bool labels = previewProgramMode &&
+		      (switcherView || config_get_bool(App()->GetUserConfig(), "BasicWindow", "StudioModeLabels"));
 
 	ui->previewLabel->setVisible(labels);
 
@@ -757,8 +800,15 @@ void OBSBasic::UpdatePreviewProgramIndicators()
 			.arg(QString::fromUtf8(color), kind.toHtmlEscaped(), QT_UTF8(name).toHtmlEscaped());
 	};
 
-	QString preview = tag(QTStr("obs2vmix.Source"), "#3ec26b", obs_source_get_name(GetCurrentSceneSource()));
-	QString program = tag(QTStr("obs2vmix.Record"), "#e0413a", obs_source_get_name(GetProgramSource()));
+	QString preview, program;
+	if (switcherView) {
+		preview = tag(QTStr("obs2vmix.Source"), "#3ec26b", obs_source_get_name(GetCurrentSceneSource()));
+		program = tag(QTStr("obs2vmix.Record"), "#e0413a", obs_source_get_name(GetProgramSource()));
+	} else {
+		preview = QTStr("StudioMode.PreviewSceneName")
+				  .arg(QT_UTF8(obs_source_get_name(GetCurrentSceneSource())));
+		program = QTStr("StudioMode.ProgramSceneName").arg(QT_UTF8(obs_source_get_name(GetProgramSource())));
+	}
 
 	if (ui->previewLabel->text() != preview) {
 		ui->previewLabel->setText(preview);
@@ -799,8 +849,8 @@ void OBSBasic::EnablePreviewProgram()
 
 void OBSBasic::DisablePreviewProgram()
 {
-	/* obs2vmix: the switcher cannot be switched off */
-	SetPreviewProgramMode(true);
+	if (!switcherView)
+		SetPreviewProgramMode(false);
 }
 
 void OBSBasic::OpenStudioProgramProjector()
@@ -936,4 +986,95 @@ void OBSBasic::UpdateSceneRecordingStatus()
 		if (!s || sceneStrip->IndexOf(s) < 0)
 			rec->Stop(true);
 	}
+}
+
+/* ---------------------------------------------------------------------- */
+/* obs2vmix: the two views                                                 */
+
+void OBSBasic::CreateViewMenu()
+{
+	QMenu *menu = new QMenu(QTStr("obs2vmix.Menu.View"), this);
+	QActionGroup *group = new QActionGroup(menu);
+	group->setExclusive(true);
+
+	viewVmixAction = menu->addAction(QTStr("obs2vmix.Menu.VMix"));
+	viewVmixAction->setCheckable(true);
+	viewVmixAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+V")));
+	viewVmixAction->setToolTip(QTStr("obs2vmix.Menu.VMixTT"));
+	group->addAction(viewVmixAction);
+
+	viewObsAction = menu->addAction(QTStr("obs2vmix.Menu.OBS"));
+	viewObsAction->setCheckable(true);
+	viewObsAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+O")));
+	viewObsAction->setToolTip(QTStr("obs2vmix.Menu.OBSTT"));
+	group->addAction(viewObsAction);
+
+	menu->addSeparator();
+	menu->addAction(ui->actionFullscreenInterface);
+
+	connect(viewVmixAction.data(), &QAction::triggered, this, [this]() { SetSwitcherView(true); });
+	connect(viewObsAction.data(), &QAction::triggered, this, [this]() { SetSwitcherView(false); });
+
+	viewVmixAction->setChecked(switcherView);
+	viewObsAction->setChecked(!switcherView);
+
+	ui->menubar->insertMenu(ui->menuDocks->menuAction(), menu);
+}
+
+/* vMix: every dock, the context bar and the status bar go away; OBS: they
+ * come back the way OBS had them */
+void OBSBasic::ApplySwitcherImmersion()
+{
+	if (switcherView) {
+		if (!config_has_user_value(App()->GetUserConfig(), "obs2vmix", "OBSDockState")) {
+			config_set_string(App()->GetUserConfig(), "obs2vmix", "OBSDockState",
+					  saveState().toBase64().constData());
+		}
+		for (QDockWidget *dock : findChildren<QDockWidget *>())
+			dock->hide();
+		ui->contextContainer->hide();
+		ui->statusbar->hide();
+	} else {
+		const char *obsState = config_get_string(App()->GetUserConfig(), "obs2vmix", "OBSDockState");
+		bool restored = false;
+		if (obsState && *obsState)
+			restored = restoreState(QByteArray::fromBase64(QByteArray(obsState)));
+		if (!restored)
+			on_resetDocks_triggered(true);
+		ui->contextContainer->setVisible(ui->toggleContextBar->isChecked());
+		ui->statusbar->setVisible(ui->toggleStatusBar->isChecked());
+	}
+
+	if (viewVmixAction)
+		viewVmixAction->setChecked(switcherView);
+	if (viewObsAction)
+		viewObsAction->setChecked(!switcherView);
+}
+
+void OBSBasic::SetSwitcherView(bool vmix)
+{
+	if (vmix == switcherView) {
+		ApplySwitcherImmersion();
+		return;
+	}
+
+	if (seamEditorOpen)
+		CloseSceneEditor();
+
+	if (!switcherView) {
+		/* leaving the OBS view: remember its docks and its Studio Mode flag */
+		config_set_string(App()->GetUserConfig(), "obs2vmix", "OBSDockState", saveState().toBase64().constData());
+		obsViewStudioMode = IsPreviewProgramMode();
+	}
+
+	/* tear down whichever layout is up, then build the other one */
+	SetPreviewProgramMode(false);
+	switcherView = vmix;
+	config_set_string(App()->GetUserConfig(), "obs2vmix", "View", vmix ? "vmix" : "obs");
+	config_save_safe(App()->GetUserConfig(), "tmp", nullptr);
+
+	SetPreviewProgramMode(vmix ? true : obsViewStudioMode);
+	ApplySwitcherImmersion();
+
+	blog(LOG_INFO, "[obs2vmix] view: %s", vmix ? "vMix" : "OBS");
 }

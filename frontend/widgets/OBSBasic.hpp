@@ -1510,6 +1510,20 @@ private:
 	void SeamTake();
 	static bool SeamKeyIsFree();
 
+	/* obs2vmix: two views. vMix = the switcher and nothing else on the
+	 * screen; OBS = OBS Studio as it is. */
+	bool switcherView = true;
+	bool obsViewStudioMode = false;
+	QPointer<QAction> viewVmixAction;
+	QPointer<QAction> viewObsAction;
+	void CreateViewMenu();
+	void ApplySwitcherImmersion();
+	void ShowTransitionConfigMenu();
+
+public:
+	void SetSwitcherView(bool vmix);
+
+private:
 	/* obs2vmix: the seam bar, the monitors and the scene strip */
 	QPointer<QWidget> seamBar;
 	QPointer<SceneStrip> sceneStrip;

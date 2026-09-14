@@ -1089,10 +1089,18 @@ void OBSBasic::OBSInit()
 	swapScenesMode = config_get_bool(App()->GetUserConfig(), "BasicWindow", "SwapScenesMode");
 	editPropertiesMode = config_get_bool(App()->GetUserConfig(), "BasicWindow", "EditPropertiesMode");
 
-	/* obs2vmix: the Source / Record switcher is the window. Studio Mode is
-	 * always on, whatever an older OBS config saved. */
-	SetPreviewProgramMode(true);
-	opt_studio_mode = false;
+	/* obs2vmix: two views. vMix = the switcher, Studio Mode forced on and
+	 * nothing else on the screen. OBS = OBS Studio with its own Studio Mode
+	 * flag. The choice is remembered. */
+	const char *view = config_get_string(App()->GetUserConfig(), "obs2vmix", "View");
+	switcherView = !(view && strcmp(view, "obs") == 0);
+	obsViewStudioMode = config_get_bool(App()->GetUserConfig(), "BasicWindow", "PreviewProgramMode");
+	if (opt_studio_mode) {
+		obsViewStudioMode = true;
+		opt_studio_mode = false;
+	}
+	CreateViewMenu();
+	SetPreviewProgramMode(switcherView ? true : obsViewStudioMode);
 
 #define SET_VISIBILITY(name, control)                                                                \
 	do {                                                                                         \
@@ -1254,6 +1262,11 @@ void OBSBasic::OBSInit()
 		if (!restoreState(dockState)) {
 			on_resetDocks_triggered(true);
 		}
+	}
+
+	/* obs2vmix: the vMix view hides every dock; the OBS view keeps them */
+	if (switcherView) {
+		ApplySwitcherImmersion();
 	}
 
 	bool pre23Defaults = config_get_bool(App()->GetUserConfig(), "General", "Pre23Defaults");
@@ -1896,8 +1909,16 @@ void OBSBasic::saveAll()
 		Auth::Save();
 		SaveProjectNow();
 
+		/* obs2vmix: in the vMix view the docks are hidden; what OBS's
+		 * own view had is what gets saved */
+		QByteArray dockState = saveState();
+		if (switcherView) {
+			const char *obsState = config_get_string(App()->GetUserConfig(), "obs2vmix", "OBSDockState");
+			if (obsState && *obsState)
+				dockState = QByteArray::fromBase64(QByteArray(obsState));
+		}
 		config_set_string(App()->GetUserConfig(), "BasicWindow", "DockState",
-				  saveState().toBase64().constData());
+				  dockState.toBase64().constData());
 
 #ifdef BROWSER_AVAILABLE
 		if (cef) {
@@ -1914,7 +1935,8 @@ void OBSBasic::saveAll()
 	config_set_bool(App()->GetUserConfig(), "BasicWindow", "SceneDuplicationMode", sceneDuplicationMode);
 	config_set_bool(App()->GetUserConfig(), "BasicWindow", "SwapScenesMode", swapScenesMode);
 	config_set_bool(App()->GetUserConfig(), "BasicWindow", "EditPropertiesMode", editPropertiesMode);
-	config_set_bool(App()->GetUserConfig(), "BasicWindow", "PreviewProgramMode", IsPreviewProgramMode());
+	config_set_bool(App()->GetUserConfig(), "BasicWindow", "PreviewProgramMode",
+			switcherView ? obsViewStudioMode : IsPreviewProgramMode());
 	config_set_bool(App()->GetUserConfig(), "BasicWindow", "DocksLocked", ui->lockDocks->isChecked());
 	config_set_bool(App()->GetUserConfig(), "BasicWindow", "SideDocks", ui->sideDocks->isChecked());
 	config_save_safe(App()->GetUserConfig(), "tmp", nullptr);
