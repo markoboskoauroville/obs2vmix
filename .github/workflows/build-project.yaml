@@ -3,9 +3,10 @@ on:
   workflow_call:
     inputs:
       platforms:
-        # obs2vmix, 14.9.2026, Marko: "focus only on building macOS DMG". 'macos' skips
-        # Ubuntu, Flatpak and Windows; 'all' is the upstream behaviour.
-        description: Which platforms to build (all, macos)
+        # obs2vmix, 14.9.2026, Marko: "focus only on building macOS DMG ... this is Apple
+        # Silicon M1, adjust all builds to my computer". 'macos' builds only the arm64 DMG
+        # and skips Ubuntu, Flatpak and Windows; 'all' is the upstream behaviour.
+        description: Which platforms to build (all, macos = Apple Silicon DMG only)
         required: false
         type: string
         default: all
@@ -72,7 +73,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [arm64, x86_64]
+        target: ${{ inputs.platforms == 'macos' && fromJSON('["arm64"]') || fromJSON('["arm64", "x86_64"]') }}
     defaults:
       run:
         shell: zsh --no-rcs --errexit --pipefail {0}
