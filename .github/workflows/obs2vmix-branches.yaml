@@ -1,7 +1,9 @@
 name: obs2vmix branch build
 run-name: ${{ github.ref_name }} obs2vmix build 🎛️
 # master is built by push.yaml (upstream OBS workflow, produces DMG / Windows / Ubuntu packages).
-# This one gives the same full build to our feature branches, so nothing merges to master unbuilt.
+# This one builds our feature branches, so nothing merges to master unbuilt.
+# Since 14.9.2026 only the macOS DMGs (Apple Silicon and Intel): Marko, "focus only on building
+# macOS DMG, other releases don't release for now". Set platforms to all to get the rest back.
 on:
   push:
     branches:
@@ -15,4 +17,6 @@ jobs:
   build-project:
     name: Build 🧱
     uses: ./.github/workflows/build-project.yaml
+    with:
+      platforms: macos
     secrets: inherit

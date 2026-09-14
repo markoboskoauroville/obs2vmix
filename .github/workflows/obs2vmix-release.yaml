@@ -2,8 +2,10 @@ name: obs2vmix release
 run-name: obs2vmix release ${{ inputs.tag }} 🛫
 # Publishes an already-built obs2vmix as a GitHub Release.
 # It does not compile anything itself: it takes the packages a green "obs2vmix branch build"
-# (or master push) run produced for every platform, renames them, and attaches them to a
-# release under the tag you give. So nothing ships that the branch build did not pass.
+# (or master push) run produced, renames them, and attaches them to a release under the tag
+# you give. So nothing ships that the branch build did not pass. Since 14.9.2026 the branch
+# build makes only the macOS DMGs, so a release holds those two; a missing platform is a
+# warning, not an error.
 #   gh workflow run obs2vmix-release.yaml --ref obs2vmix/seam -f tag=obs2vmix-0.2.0
 # run_id may be left empty: the newest successful build of the ref you dispatched from is used.
 on:
@@ -125,7 +127,7 @@ jobs:
           cd "${GITHUB_WORKSPACE}/release"
           notes="${GITHUB_WORKSPACE}/NOTES.md"
           {
-            echo "obs2vmix: OBS Studio with a vision-mixer operator window (Source / Record, Take, Cut, scene strip)."
+            echo "OBS2vMix: OBS Studio with a vision-mixer face and no text: Source and Final, five thumbnails, every action on the right mouse button."
             echo
             echo "Built by GitHub Actions run [${RUN_ID}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}) from commit ${HEAD_SHA}."
             echo

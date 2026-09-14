@@ -1,6 +1,14 @@
 name: Build Project
 on:
   workflow_call:
+    inputs:
+      platforms:
+        # obs2vmix, 14.9.2026, Marko: "focus only on building macOS DMG". 'macos' skips
+        # Ubuntu, Flatpak and Windows; 'all' is the upstream behaviour.
+        description: Which platforms to build (all, macos)
+        required: false
+        type: string
+        default: all
 jobs:
   check-event:
     name: Event Data 🔎
@@ -179,6 +187,7 @@ jobs:
 
   ubuntu-build:
     name: Ubuntu 🐧
+    if: ${{ inputs.platforms != 'macos' }}
     strategy:
       fail-fast: false
       matrix:
@@ -254,6 +263,7 @@ jobs:
 
   flatpak-build:
     name: Flatpak 📦
+    if: ${{ inputs.platforms != 'macos' }}
     runs-on: ubuntu-26.04
     needs: check-event
     defaults:
@@ -382,6 +392,7 @@ jobs:
 
   windows-build:
     name: Windows 🪟
+    if: ${{ inputs.platforms != 'macos' }}
     strategy:
       matrix:
         architecture: [x64, arm64]
