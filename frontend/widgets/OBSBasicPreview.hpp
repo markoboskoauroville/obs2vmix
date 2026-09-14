@@ -70,6 +70,7 @@ private:
 	bool locked = false;
 	bool scrollMode = false;
 	bool fixedScaling = false;
+	bool fitLocked = false;
 	bool selectionBox = false;
 	bool overflowHidden = false;
 	bool overflowSelectionHidden = false;
@@ -147,6 +148,12 @@ public:
 
 	inline void SetFixedScaling(bool newFixedScalingVal)
 	{
+		/* obs2vmix: in the switcher the picture always fits its pane
+		 * (Marko, 14.9.2026: "always fitting the available space, adapting";
+		 * zooming is a later task) */
+		if (fitLocked)
+			newFixedScalingVal = false;
+
 		if (fixedScaling == newFixedScalingVal) {
 			return;
 		}
@@ -155,6 +162,12 @@ public:
 		emit fixedScalingChanged(fixedScaling);
 	}
 	inline bool IsFixedScaling() const { return fixedScaling; }
+	inline void LockFit(bool on)
+	{
+		fitLocked = on;
+		if (on)
+			SetFixedScaling(false);
+	}
 
 	void SetScalingLevel(int32_t newScalingLevelVal);
 	void SetScalingAmount(float newScalingAmountVal);

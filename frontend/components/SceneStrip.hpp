@@ -3,9 +3,9 @@
 
     Five live thumbnails in a row instead of a timeline, and nothing else:
     no names, no buttons, no text. One OBSQTDisplay renders every visible
-    scene (the way the multiview does); the name and the recording status
-    are a tooltip, the actions are a right-click menu, a recording scene
-    carries a blinking dot.
+    scene (the way the multiview does); the name is a tooltip, the actions
+    are a right-click menu. Under each thumbnail one reserved line: empty,
+    or, while the scene records, a round red light and the time recorded.
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -30,6 +30,8 @@
 
 class OBSQTDisplay;
 class QScrollBar;
+class QLabel;
+class QTimer;
 class SceneStripDisplay;
 
 class SceneStrip : public QWidget {
@@ -58,9 +60,10 @@ public:
 	/* the scene whose editor is open gets a grey frame */
 	void SetEditing(obs_source_t *scene);
 
-	/* per-scene recording state: the dot on the thumbnail, the tooltip */
+	/* per-scene recording state: the light and the time under the
+	 * thumbnail, the detail line in the tooltip */
 	void SetRecording(int index, bool on);
-	void SetStatus(int index, const QString &text, int level);
+	void SetStatus(int index, uint64_t elapsedMs, const QString &detail, int level);
 
 	/* the tooltip for a tile: "3 · Cam 1", then the recording line */
 	QString TileToolTip(int index) const;
@@ -79,6 +82,8 @@ private:
 		bool recording = false;
 		int level = 0;
 		QString status;
+		QLabel *light = nullptr;
+		QLabel *time = nullptr;
 	};
 
 	static void Render(void *data, uint32_t cx, uint32_t cy);
@@ -92,6 +97,9 @@ private:
 
 	SceneStripDisplay *display = nullptr;
 	QScrollBar *scrollBar = nullptr;
+	QTimer *blinkTimer = nullptr;
+	bool blinkOn = true;
+	void UpdateLights();
 
 	mutable std::mutex mutex;
 	std::vector<OBSWeakSource> scenes;

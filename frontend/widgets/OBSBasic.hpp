@@ -40,6 +40,7 @@
 #include <util/util.hpp>
 
 #include <QAccessible>
+#include <QSplitter>
 #include <QSystemTrayIcon>
 
 #include <deque>
@@ -1527,6 +1528,11 @@ private:
 	QPointer<FxRack> fxRack;
 	QPointer<QWidget> sourceTally;
 	QPointer<QWidget> finalTally;
+	/* three panes with draggable lines: Source | Final, and the strip under them */
+	QPointer<QSplitter> monitorSplitter;
+	QPointer<QSplitter> paneSplitter;
+	void SaveSplitter(QSplitter *splitter, const char *key);
+	void RestoreSplitter(QSplitter *splitter, const char *key);
 	bool seamSingleMonitor = false;
 	bool seamSingleShowsProgram = true;
 	bool seamEditorOpen = false;

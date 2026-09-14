@@ -16,14 +16,16 @@
 #include <qt-wrappers.hpp>
 
 #include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QTimer>
+#include <QFontDatabase>
 #include <QScrollBar>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QHelpEvent>
 #include <QToolTip>
 #include <QResizeEvent>
-
-#include <util/platform.h>
 
 #include <algorithm>
 
@@ -36,8 +38,6 @@ static const uint32_t COLOR_FRAME = 0xFF3A3F4B;
 static const uint32_t COLOR_EDITING = 0xFF8B91A0;
 static const uint32_t COLOR_PREVIEW = 0xFF3EC26B;
 static const uint32_t COLOR_PROGRAM = 0xFFE0413A;
-static const uint32_t COLOR_REC = 0xFFE0413A;
-static const uint32_t COLOR_WARN = 0xFFF0B429;
 
 static const int TILE_PAD = 4; /* logical pixels around every thumbnail */
 
@@ -62,27 +62,20 @@ class SceneStripDisplay : public OBSQTDisplay {
 public:
 	SceneStripDisplay(SceneStrip *strip_) : OBSQTDisplay(strip_), strip(strip_)
 	{
-		QSizePolicy sp(QSizePolicy::Expanding, QSizePolicy::Preferred);
-		sp.setHeightForWidth(true);
-		setSizePolicy(sp);
+		/* the pane above decides the height (a splitter line the operator
+		 * drags); the thumbnails fit whatever height they get */
+		setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 		setMinimumHeight(60);
 		SetDisplayBackgroundColor(QColor(0x1d, 0x20, 0x26));
-	}
-
-	bool hasHeightForWidth() const override { return true; }
-
-	int heightForWidth(int w) const override
-	{
-		int tile = w / SceneStrip::VISIBLE - 2 * TILE_PAD;
-		if (tile < 16)
-			tile = 16;
-		return tile * 9 / 16 + 2 * TILE_PAD;
 	}
 
 	QSize sizeHint() const override
 	{
 		int w = width() > 0 ? width() : 800;
-		return QSize(w, heightForWidth(w));
+		int tile = w / SceneStrip::VISIBLE - 2 * TILE_PAD;
+		if (tile < 16)
+			tile = 16;
+		return QSize(w, tile * 9 / 16 + 2 * TILE_PAD);
 	}
 
 protected:
@@ -158,12 +151,50 @@ SceneStrip::SceneStrip(QWidget *parent) : QWidget(parent)
 	layout->setContentsMargins(0, 0, 0, 0);
 	layout->setSpacing(0);
 
-	/* the thumbnails, and nothing else */
+	/* the thumbnails */
 	display = new SceneStripDisplay(this);
-	layout->addWidget(display);
+	layout->addWidget(display, 1);
 
 	connect(display, &OBSQTDisplay::DisplayCreated, this, [this](OBSQTDisplay *window) {
 		obs_display_add_draw_callback(window->GetDisplay(), SceneStrip::Render, this);
+	});
+
+	/* one reserved line under them: empty, or the recording light and the
+	 * time recorded (Marko, 14.9.2026: "a round circle indicator, and
+	 * next to it the time of recording") */
+	QWidget *lights = new QWidget(this);
+	lights->setFixedHeight(18);
+	lights->setStyleSheet("background:#1d2026;");
+	QHBoxLayout *row = new QHBoxLayout(lights);
+	row->setContentsMargins(0, 0, 0, 0);
+	row->setSpacing(0);
+	QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+	mono.setPointSizeF(mono.pointSizeF() * 0.9);
+	for (int i = 0; i < VISIBLE; i++) {
+		QWidget *cell = new QWidget();
+		cell->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+		QHBoxLayout *c = new QHBoxLayout(cell);
+		c->setContentsMargins(0, 0, 0, 0);
+		c->setSpacing(6);
+		tiles[i].light = new QLabel();
+		tiles[i].light->setFixedSize(10, 10);
+		tiles[i].time = new QLabel();
+		tiles[i].time->setFont(mono);
+		c->addStretch(1);
+		c->addWidget(tiles[i].light);
+		c->addWidget(tiles[i].time);
+		c->addStretch(1);
+		tiles[i].light->hide();
+		tiles[i].time->hide();
+		row->addWidget(cell, 1);
+	}
+	layout->addWidget(lights);
+
+	blinkTimer = new QTimer(this);
+	blinkTimer->setInterval(500);
+	connect(blinkTimer, &QTimer::timeout, this, [this]() {
+		blinkOn = !blinkOn;
+		UpdateLights();
 	});
 
 	/* scrolling, shown only when there are more scenes than tiles */
@@ -311,18 +342,65 @@ void SceneStrip::SetRecording(int index, bool on)
 	int i = index - offset;
 	if (i < 0 || i >= VISIBLE)
 		return;
-	std::lock_guard<std::mutex> lock(mutex);
-	tiles[i].recording = on;
+	{
+		std::lock_guard<std::mutex> lock(mutex);
+		tiles[i].recording = on;
+	}
+	UpdateLights();
 }
 
-void SceneStrip::SetStatus(int index, const QString &text, int level)
+void SceneStrip::SetStatus(int index, uint64_t elapsedMs, const QString &detail, int level)
 {
 	int i = index - offset;
 	if (i < 0 || i >= VISIBLE)
 		return;
-	std::lock_guard<std::mutex> lock(mutex);
-	tiles[i].status = text;
-	tiles[i].level = level;
+	{
+		std::lock_guard<std::mutex> lock(mutex);
+		tiles[i].status = detail;
+		tiles[i].level = level;
+	}
+	uint64_t sec = elapsedMs / 1000;
+	QString t = sec >= 3600 ? QString("%1:%2:%3")
+					  .arg(sec / 3600)
+					  .arg((sec / 60) % 60, 2, 10, QChar('0'))
+					  .arg(sec % 60, 2, 10, QChar('0'))
+				: QString("%1:%2").arg(sec / 60, 2, 10, QChar('0')).arg(sec % 60, 2, 10, QChar('0'));
+	tiles[i].time->setText(t);
+	UpdateLights();
+}
+
+/* the light: red and blinking while all is well, amber when frames drop or
+ * the disk runs low; the time next to it. The timer runs only while
+ * something records. */
+void SceneStrip::UpdateLights()
+{
+	bool any = false;
+	for (int i = 0; i < VISIBLE; i++) {
+		bool rec;
+		int level;
+		{
+			std::lock_guard<std::mutex> lock(mutex);
+			rec = tiles[i].recording;
+			level = tiles[i].level;
+		}
+		QLabel *light = tiles[i].light;
+		QLabel *time = tiles[i].time;
+		if (!light || !time)
+			continue;
+		light->setVisible(rec);
+		time->setVisible(rec);
+		if (!rec)
+			continue;
+		any = true;
+		const char *color = level >= 1 ? "#f0b429" : "#e0413a";
+		bool lit = blinkOn || level == 1;
+		light->setStyleSheet(QString("border-radius:5px;background:%1;").arg(lit ? color : "#3a3f4b"));
+		time->setStyleSheet(QString("color:%1;").arg(level >= 1 ? "#f0b429" : "#d8dbe2"));
+	}
+	if (any && !blinkTimer->isActive())
+		blinkTimer->start();
+	else if (!any && blinkTimer->isActive())
+		blinkTimer->stop();
 }
 
 QString SceneStrip::TileToolTip(int index) const
@@ -358,9 +436,13 @@ void SceneStrip::UpdateTiles()
 	 * or a list change they are cleared here and re-applied by the owner */
 	{
 		std::lock_guard<std::mutex> lock(mutex);
-		for (int i = 0; i < VISIBLE; i++)
-			tiles[i] = TileState();
+		for (int i = 0; i < VISIBLE; i++) {
+			tiles[i].recording = false;
+			tiles[i].level = 0;
+			tiles[i].status.clear();
+		}
 	}
+	UpdateLights();
 	emit TilesChanged();
 }
 
@@ -435,19 +517,13 @@ void SceneStrip::Render(void *data, uint32_t cx, uint32_t cy)
 		return;
 
 	std::vector<OBSSource> visible;
-	TileState state[VISIBLE];
 	OBSSource editingSrc;
 	{
 		std::lock_guard<std::mutex> lock(strip->mutex);
 		for (int i = strip->offset; i < strip->offset + VISIBLE && i < (int)strip->scenes.size(); i++)
 			visible.push_back(OBSGetStrongRef(strip->scenes[i]));
-		for (int i = 0; i < VISIBLE; i++)
-			state[i] = strip->tiles[i];
 		editingSrc = OBSGetStrongRef(strip->editing);
 	}
-
-	/* the recording dot blinks: on for half a second, off for half */
-	bool blinkOn = (os_gettime_ns() / 500000000ULL) % 2 == 0;
 
 	OBSSource previewSrc = main->GetCurrentSceneSource();
 	OBSSource programSrc = main->GetProgramSource();
@@ -518,20 +594,6 @@ void SceneStrip::Render(void *data, uint32_t cx, uint32_t cy)
 			    (float)ovi.base_height);
 		obs_source_video_render(src);
 		regionEnd();
-
-		/* a recording scene: a dot in the corner. Red and blinking while
-		 * all is well, amber when frames drop, amber and blinking when
-		 * the disk is nearly full. */
-		const TileState &st = state[i];
-		if (st.recording) {
-			bool lit = st.level == 1 ? true : blinkOn;
-			if (lit) {
-				float d = 10.0f * dpr;
-				float m = 6.0f * dpr;
-				paintBox(ix + m - dpr, iy + m - dpr, d + 2.0f * dpr, d + 2.0f * dpr, COLOR_BLACK);
-				paintBox(ix + m, iy + m, d, d, st.level >= 1 ? COLOR_WARN : COLOR_REC);
-			}
-		}
 	}
 
 	gs_projection_pop();

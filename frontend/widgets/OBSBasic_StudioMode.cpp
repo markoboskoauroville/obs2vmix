@@ -47,6 +47,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QSplitter>
 
 #include <functional>
 
@@ -281,6 +282,12 @@ void OBSBasic::SourceViewContextMenu()
 	QMenu popup(this);
 	OBSSource scene = GetCurrentSceneSource();
 
+	/* the first line says which window this is */
+	QAction *title = popup.addAction(QString("%1  ·  %2").arg(QTStr("obs2vmix.Menu.SourceTitle"),
+								   QT_UTF8(obs_source_get_name(scene))));
+	title->setEnabled(false);
+	popup.addSeparator();
+
 	popup.addAction(QTStr("obs2vmix.Menu.Take"), this, &OBSBasic::SeamTake);
 	popup.addAction(QTStr("obs2vmix.Menu.Cut"), this, &OBSBasic::SeamCut);
 	popup.addSeparator();
@@ -315,6 +322,12 @@ void OBSBasic::SceneTileMenu(OBSSource scene, const QPoint &pos)
 		return;
 
 	QMenu popup(this);
+
+	QAction *title = popup.addAction(QString("%1  ·  %2")
+						 .arg(sceneStrip ? sceneStrip->IndexOf(scene) + 1 : 0)
+						 .arg(QT_UTF8(obs_source_get_name(scene))));
+	title->setEnabled(false);
+	popup.addSeparator();
 
 	popup.addAction(QTStr("obs2vmix.Menu.ToSource"), this, [this, scene]() { SetCurrentScene(scene, false); });
 	popup.addAction(QTStr("obs2vmix.Menu.TakeScene"), this, [this, scene]() {
@@ -639,16 +652,59 @@ void OBSBasic::SetPreviewProgramMode(bool enabled)
 			programLayout->addWidget(program);
 			programWidget->setLayout(programLayout);
 
-			ui->previewLayout->setSpacing(0);
-			ui->previewLayout->addWidget(programWidget);
-			programOptions->setParent(ui->previewLayout->parentWidget());
+			/* the Source monitor fits its pane the way the Final does: no
+			 * zoom, no scrollbars, no zoom bar under it (Marko, 14.9.2026:
+			 * "I lost my preview window") */
+			ui->preview->LockFit(true);
+			setPreviewScalingWindow();
+			ui->previewXContainer->hide();
+			ui->previewYScrollBar->hide();
+			ui->preview->SetDisplayBackgroundColor(QColor(0, 0, 0));
+			program->SetDisplayBackgroundColor(QColor(0, 0, 0));
+
+			QWidget *canvas = ui->previewLayout->parentWidget();
+			programOptions->setParent(canvas);
 			programOptions->hide();
+
+			/* three panes with lines the mouse can drag, as OBS's docks:
+			 * Source | Final above, the strip below */
+			const char *handleStyle = "QSplitter::handle{background:#2c303a;}"
+						  "QSplitter::handle:hover{background:#7aa2ff;}";
+			monitorSplitter = new QSplitter(Qt::Horizontal);
+			monitorSplitter->setObjectName("obs2vmixMonitorSplit");
+			monitorSplitter->setChildrenCollapsible(false);
+			monitorSplitter->setHandleWidth(5);
+			monitorSplitter->setStyleSheet(handleStyle);
+			ui->previewLayout->removeWidget(ui->previewContainer);
+			monitorSplitter->addWidget(ui->previewContainer);
+			monitorSplitter->addWidget(programWidget);
+			monitorSplitter->setStretchFactor(0, 1);
+			monitorSplitter->setStretchFactor(1, 1);
+			ui->previewLayout->setSpacing(0);
+			ui->previewLayout->addWidget(monitorSplitter);
+			RestoreSplitter(monitorSplitter, "MonitorSplit");
+			connect(monitorSplitter.data(), &QSplitter::splitterMoved, this,
+				[this]() { SaveSplitter(monitorSplitter, "MonitorSplit"); });
 
 			/* the FX rack is a floating window, opened from the Final menu */
 			fxRack = new FxRack(this);
 
 			sceneStrip = new SceneStrip();
-			ui->verticalLayout->insertWidget(1, sceneStrip);
+			paneSplitter = new QSplitter(Qt::Vertical);
+			paneSplitter->setObjectName("obs2vmixPaneSplit");
+			paneSplitter->setChildrenCollapsible(false);
+			paneSplitter->setHandleWidth(5);
+			paneSplitter->setStyleSheet(handleStyle);
+			ui->verticalLayout->removeWidget(canvas);
+			paneSplitter->addWidget(canvas);
+			paneSplitter->addWidget(sceneStrip);
+			paneSplitter->setStretchFactor(0, 1);
+			paneSplitter->setStretchFactor(1, 0);
+			ui->verticalLayout->insertWidget(0, paneSplitter);
+			RestoreSplitter(paneSplitter, "PaneSplit");
+			connect(paneSplitter.data(), &QSplitter::splitterMoved, this,
+				[this]() { SaveSplitter(paneSplitter, "PaneSplit"); });
+
 			connect(sceneStrip.data(), &SceneStrip::SceneClicked, this,
 				[this](OBSSource scene) { SetCurrentScene(scene, false); });
 			connect(sceneStrip.data(), &SceneStrip::SceneDoubleClicked, this, &OBSBasic::OpenSceneEditor);
@@ -680,7 +736,10 @@ void OBSBasic::SetPreviewProgramMode(bool enabled)
 			ui->previewLayout->setAlignment(programOptions, Qt::AlignCenter);
 		}
 
-		sizeObserver = new PreviewProgramSizeObserver(ui->preview, program, this);
+		/* the observer keeps OBS's two monitors the same size; in the vMix
+		 * view the splitter does that, and the operator may drag it */
+		if (!switcherView)
+			sizeObserver = new PreviewProgramSizeObserver(ui->preview, program, this);
 
 		OnEvent(OBS_FRONTEND_EVENT_STUDIO_MODE_ENABLED);
 
@@ -699,6 +758,27 @@ void OBSBasic::SetPreviewProgramMode(bool enabled)
 		StopAllSceneRecordings();
 		seamEditorOpen = false;
 		seamSingleMonitor = false;
+
+		/* the splitters give OBS its widgets back before they go */
+		if (monitorSplitter) {
+			QWidget *canvas = ui->previewLayout->parentWidget();
+			ui->previewContainer->setParent(canvas);
+			ui->previewLayout->insertWidget(0, ui->previewContainer);
+			ui->previewContainer->show();
+			ui->previewXContainer->show();
+			ui->previewYScrollBar->show();
+			ui->preview->LockFit(false);
+			delete monitorSplitter;
+		}
+		if (paneSplitter) {
+			QWidget *canvas = ui->previewLayout->parentWidget();
+			QWidget *central = ui->verticalLayout->parentWidget();
+			canvas->setParent(central);
+			ui->verticalLayout->insertWidget(0, canvas);
+			canvas->show();
+			delete paneSplitter;
+		}
+
 		ui->previewContainer->setVisible(true);
 		ui->previewLayout->setSpacing(2);
 		delete sceneStrip;
@@ -708,7 +788,8 @@ void OBSBasic::SetPreviewProgramMode(bool enabled)
 		delete program;
 		delete programLabel;
 		delete programWidget;
-		sizeObserver->deleteLater();
+		if (sizeObserver)
+			sizeObserver->deleteLater();
 
 		if (lastScene) {
 			OBSSource actualLastScene = OBSGetStrongRef(lastScene);
@@ -742,6 +823,26 @@ void OBSBasic::SetPreviewProgramMode(bool enabled)
 
 	ResetUI();
 	UpdateTitleBar();
+}
+
+/* the pane sizes survive a restart: obs2vmix/MonitorSplit, obs2vmix/PaneSplit */
+void OBSBasic::SaveSplitter(QSplitter *splitter, const char *key)
+{
+	if (!splitter)
+		return;
+	config_set_string(App()->GetUserConfig(), "obs2vmix", key, splitter->saveState().toBase64().constData());
+	config_save_safe(App()->GetUserConfig(), "tmp", nullptr);
+}
+
+void OBSBasic::RestoreSplitter(QSplitter *splitter, const char *key)
+{
+	if (!splitter)
+		return;
+	const char *state = config_get_string(App()->GetUserConfig(), "obs2vmix", key);
+	if (state && *state && splitter->restoreState(QByteArray::fromBase64(QByteArray(state))))
+		return;
+	if (splitter->orientation() == Qt::Horizontal)
+		splitter->setSizes({1000, 1000});
 }
 
 void OBSBasic::RenderProgram(void *data, uint32_t, uint32_t)
@@ -829,6 +930,11 @@ void OBSBasic::ProgramViewContextMenuRequested()
 	QPointer<QMenu> studioProgramProjector;
 
 	if (switcherView) {
+		QAction *title = popup.addAction(QString("%1  ·  %2").arg(QTStr("obs2vmix.Menu.FinalTitle"),
+									   QT_UTF8(obs_source_get_name(GetProgramSource()))));
+		title->setEnabled(false);
+		popup.addSeparator();
+
 		popup.addAction(QTStr("obs2vmix.Menu.Transition"), this, &OBSBasic::ShowTransitionDialog);
 		popup.addAction(QTStr("obs2vmix.Menu.AudioFx"), this, [this]() {
 			if (fxRack)
@@ -985,7 +1091,7 @@ void OBSBasic::UpdateSceneRecordingStatus()
 		SceneRecorder *rec = s ? FindSceneRecorder(s) : nullptr;
 		if (!rec) {
 			sceneStrip->SetRecording(i, false);
-			sceneStrip->SetStatus(i, QString(), 0);
+			sceneStrip->SetStatus(i, 0, QString(), 0);
 			continue;
 		}
 
@@ -998,7 +1104,8 @@ void OBSBasic::UpdateSceneRecordingStatus()
 
 		int level = st.lowDisk ? 2 : st.dropped ? 1 : 0;
 		sceneStrip->SetRecording(i, true);
-		sceneStrip->SetStatus(i, QString("%1 (%2)").arg(formatElapsed(st.elapsedMs), parts.join(" · ")), level);
+		sceneStrip->SetStatus(i, st.elapsedMs, QString("%1 (%2)").arg(formatElapsed(st.elapsedMs), parts.join(" · ")),
+				      level);
 	}
 
 	/* a recorder whose scene left the collection stops itself */

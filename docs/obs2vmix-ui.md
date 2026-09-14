@@ -25,8 +25,13 @@ I just see images and previews. Everything is done through the right mouse butto
 
 * **Two monitors and the strip, nothing else.** Source (the preview) on the left, Final (the
   program) on the right, a two-pixel tally line over each (green, red), the five live
-  thumbnails under them. No labels, no buttons, no bars, no names. The window is resizable
-  and the two monitors share the width equally, 16:9 each.
+  thumbnails under them. No labels, no buttons, no bars, no names.
+* **Three panes, lines between them** (0.4.1, Marko: "same as in OBS normal"): a draggable
+  line between Source and Final, another between the monitors and the strip; the sizes are
+  remembered (`obs2vmix/MonitorSplit`, `obs2vmix/PaneSplit`). Both monitors always fit their
+  pane, as in Resolve or Avid: no zoom, no scrollbars, no zoom bar (zooming is a later task).
+* **Every right-click menu says which window it is** in its first line: `SOURCE · Cam 1`,
+  `FINAL · Cam 1`, `3 · Cam 2` on a thumbnail.
 * **Right-click on Source** → Take (Space), Cut (Enter), Edit scene…, Record this scene,
   the projector, a screenshot; then One monitor, Fullscreen, OBS Studio.
 * **Right-click on Final** → **Transition…** (a small dialog: the transition, its length, the
@@ -59,10 +64,10 @@ Final, and any number of scenes can record at once. *Record this scene* in the t
 menu (or in the Source menu, for the scene on Source) starts it; the same entry, now ticked,
 stops it.
 
-* **The dot.** A recording scene carries a dot in the top-left corner of its thumbnail: red
-  and blinking while all is well, amber when frames drop, amber and blinking when the
-  recording disk is nearly full. When the disk is full the output stops itself and the dot
-  goes away.
+* **The light and the time.** One reserved line under every thumbnail, empty until the scene
+  records; then a round red light, blinking, and next to it the time recorded, `12:41`
+  (`1:02:05` past an hour). Amber when frames drop or the disk runs low. When the disk is
+  full the output stops itself and the line empties.
 * **The line.** The tooltip of the thumbnail shows `00:12:41 (412 GB · 50 fps)`: elapsed time,
   then the free space on the recording disk and the frame rate the encoder is achieving;
   `· 12 dropped` is added when frames are skipped.
@@ -181,7 +186,11 @@ CUT, TAKE, collapse, Done, OBS), the strip's header and hint, the names and reco
 under the thumbnails, the FX summary line and the labels over the monitors are all gone.
 What is on the screen: two monitors with a tally line each, five thumbnails. Every action
 moved to the right mouse button (Source menu, Final menu, thumbnail menu); the transition is
-a dialog with OK, the FX rack a floating window with OK. Version obs2vmix-0.4.0.
+a dialog with OK, the FX rack a floating window with OK. Version obs2vmix-0.4.0. The same
+afternoon, 0.4.1, from his first look: the Source monitor had come up in OBS's zoomed mode
+with a zoom bar under it ("I lost my preview window"), so the switcher locks it to fit; the
+three panes got draggable lines; every menu names its window; the recording light and time
+came back under the thumbnails. Builds are Apple Silicon only from 0.4.0 on.
 
 14 Sep 2026: Studio Mode is the only mode. The default is on, startup forces it on whatever an older
 OBS config saved, and the View menu toggle and its hotkey cannot switch it off; without this a
