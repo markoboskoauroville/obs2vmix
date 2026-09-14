@@ -174,3 +174,20 @@ Phases 3–8 were built 13 Sep 2026 on `obs2vmix/seam`.
 OBS config saved, and the View menu toggle and its hotkey cannot switch it off; without this a
 profile with Studio Mode off showed plain OBS and none of the switcher (Marko: "the user interface
 of OBS is persistent").
+
+## The release ritual (14 Sep 2026)
+
+Marko: "when a new Mac version is ready you download and update automatically from this chat and
+inform me." So after every change:
+
+1. Tag **before** pushing: `git tag obs2vmix-x.y.z && git push origin obs2vmix/seam --tags`. The
+   build reads the newest reachable tag into `OBS2VMIX_VERSION`; a tag created afterwards by the
+   release workflow is one version late.
+2. Watch the `obs2vmix branch build` run; all seven jobs green.
+3. `gh workflow run obs2vmix-release.yaml --ref obs2vmix/seam -f tag=obs2vmix-x.y.z -f run_id=<run>`.
+4. On this Mac: `obs2vmix-update` (downloads, installs, strips the quarantine flag, opens).
+5. `whatsapp "OBS2vMix x.y.z is ready and installed: <release url>"`.
+
+In the app: Help → *Update OBS2vMix…* runs the same updater in the Terminal (fetched fresh from
+`tools/obs2vmix-update`), Help → *Check for a new OBS2vMix* asks GitHub, and at startup a newer
+release is offered (config `obs2vmix/CheckUpdates`).

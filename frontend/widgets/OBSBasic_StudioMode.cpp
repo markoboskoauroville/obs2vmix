@@ -23,6 +23,7 @@
 #include <components/SceneStrip.hpp>
 #include <components/FxRack.hpp>
 #include <utility/SceneRecorder.hpp>
+#include <utility/Obs2vmixUpdate.hpp>
 
 #include <utility/display-helpers.hpp>
 #include <utility/QuickTransition.hpp>
@@ -1019,6 +1020,24 @@ void OBSBasic::CreateViewMenu()
 	viewObsAction->setChecked(!switcherView);
 
 	ui->menubar->insertMenu(ui->menuDocks->menuAction(), menu);
+
+	/* Help: update the app, and how */
+	QAction *update = new QAction(QTStr("obs2vmix.Update.Menu"), this);
+	connect(update, &QAction::triggered, this, [this]() {
+		if (!obs2vmix::RunUpdaterInTerminal())
+			obs2vmix::ShowUpdateHelp(this);
+	});
+	QAction *check = new QAction(QTStr("obs2vmix.Update.CheckMenu"), this);
+	connect(check, &QAction::triggered, this, [this]() { obs2vmix::CheckForUpdate(this, false); });
+	QAction *howto = new QAction(QTStr("obs2vmix.Update.Help"), this);
+	connect(howto, &QAction::triggered, this, [this]() { obs2vmix::ShowUpdateHelp(this); });
+
+	QList<QAction *> helpActions = ui->menuBasic_MainMenu_Help->actions();
+	QAction *first = helpActions.isEmpty() ? nullptr : helpActions.first();
+	ui->menuBasic_MainMenu_Help->insertAction(first, update);
+	ui->menuBasic_MainMenu_Help->insertAction(first, check);
+	ui->menuBasic_MainMenu_Help->insertAction(first, howto);
+	ui->menuBasic_MainMenu_Help->insertSeparator(first);
 }
 
 /* vMix: every dock, the context bar and the status bar go away; OBS: they

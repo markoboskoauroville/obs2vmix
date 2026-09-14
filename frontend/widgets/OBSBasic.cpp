@@ -43,6 +43,7 @@
 #include <utility/SceneRecorder.hpp>
 #include <components/FxRack.hpp>
 #include <components/SceneStrip.hpp>
+#include <utility/Obs2vmixUpdate.hpp>
 #include <utility/SceneRenameDelegate.hpp>
 #if defined(_WIN32) || defined(WHATSNEW_ENABLED)
 #include <utility/WhatsNewInfoThread.hpp>
@@ -1427,6 +1428,10 @@ void OBSBasic::OnFirstLoad()
 	if (showLogViewerOnStartup) {
 		on_actionViewCurrentLog_triggered();
 	}
+
+	/* obs2vmix: a newer release is offered, quietly when there is none */
+	if (config_get_bool(App()->GetUserConfig(), "obs2vmix", "CheckUpdates"))
+		obs2vmix::CheckForUpdate(this, true);
 }
 
 OBSBasic::~OBSBasic() {}

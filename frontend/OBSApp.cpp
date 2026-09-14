@@ -357,6 +357,7 @@ void OBSApp::InitUserConfigDefaults()
 	/* obs2vmix: the switcher window is Studio Mode; it is the only mode */
 	config_set_default_bool(userConfig, "BasicWindow", "PreviewProgramMode", true);
 	config_set_default_string(userConfig, "obs2vmix", "View", "vmix");
+	config_set_default_bool(userConfig, "obs2vmix", "CheckUpdates", true);
 	config_set_default_bool(userConfig, "BasicWindow", "SceneDuplicationMode", true);
 	config_set_default_bool(userConfig, "BasicWindow", "SwapScenesMode", true);
 	config_set_default_bool(userConfig, "BasicWindow", "SnappingEnabled", true);

@@ -47,6 +47,8 @@ target_sources(
     utility/MasterChain.hpp
     utility/MidiIn.cpp
     utility/MidiIn.hpp
+    utility/Obs2vmixUpdate.cpp
+    utility/Obs2vmixUpdate.hpp
 )
 
 if(OS_MACOS)
@@ -68,3 +70,6 @@ else()
     message(STATUS "obs2vmix: ALSA not found, the FX rack builds without MIDI input")
   endif()
 endif()
+
+find_package(Qt6 REQUIRED COMPONENTS Network)
+target_link_libraries(obs-studio PRIVATE Qt::Network)
