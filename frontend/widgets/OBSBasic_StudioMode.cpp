@@ -659,8 +659,10 @@ void OBSBasic::SetPreviewProgramMode(bool enabled)
 			setPreviewScalingWindow();
 			ui->previewXContainer->hide();
 			ui->previewYScrollBar->hide();
-			ui->preview->SetDisplayBackgroundColor(QColor(0, 0, 0));
-			program->SetDisplayBackgroundColor(QColor(0, 0, 0));
+			/* the theme paints every OBSQTDisplay grey through a qproperty;
+			 * a stylesheet on the widget itself wins, so both sit on black */
+			ui->preview->setStyleSheet("OBSQTDisplay{qproperty-displayBackgroundColor:#000000;}");
+			program->setStyleSheet("OBSQTDisplay{qproperty-displayBackgroundColor:#000000;}");
 
 			QWidget *canvas = ui->previewLayout->parentWidget();
 			programOptions->setParent(canvas);
@@ -768,6 +770,7 @@ void OBSBasic::SetPreviewProgramMode(bool enabled)
 			ui->previewXContainer->show();
 			ui->previewYScrollBar->show();
 			ui->preview->LockFit(false);
+			ui->preview->setStyleSheet(QString());
 			delete monitorSplitter;
 		}
 		if (paneSplitter) {
@@ -841,8 +844,11 @@ void OBSBasic::RestoreSplitter(QSplitter *splitter, const char *key)
 	const char *state = config_get_string(App()->GetUserConfig(), "obs2vmix", key);
 	if (state && *state && splitter->restoreState(QByteArray::fromBase64(QByteArray(state))))
 		return;
+	/* first time: the monitors share the width; the strip gets a quarter of the height */
 	if (splitter->orientation() == Qt::Horizontal)
 		splitter->setSizes({1000, 1000});
+	else
+		splitter->setSizes({3000, 1000});
 }
 
 void OBSBasic::RenderProgram(void *data, uint32_t, uint32_t)
