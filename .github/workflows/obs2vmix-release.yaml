@@ -3,9 +3,8 @@ run-name: obs2vmix release ${{ inputs.tag }} 🛫
 # Publishes an already-built obs2vmix as a GitHub Release.
 # It does not compile anything itself: it takes the packages a green "obs2vmix branch build"
 # (or master push) run produced, renames them, and attaches them to a release under the tag
-# you give. So nothing ships that the branch build did not pass. Since 14.9.2026 the branch
-# build makes only the macOS DMGs, so a release holds those two; a missing platform is a
-# warning, not an error.
+# you give. So nothing ships that the branch build did not pass. Since 14.9.2026 a release
+# holds only the two macOS DMGs (Apple Silicon, Intel), whatever else the run produced.
 #   gh workflow run obs2vmix-release.yaml --ref obs2vmix/seam -f tag=obs2vmix-0.2.0
 # run_id may be left empty: the newest successful build of the ref you dispatched from is used.
 on:
@@ -99,16 +98,18 @@ jobs:
           }
 
           echo '::group::Renaming'
-          take "OBS2vMix-${VERSION}-Windows-x64.zip"          **/obs-studio-*-windows-x64.zip
-          take "OBS2vMix-${VERSION}-Windows-arm64.zip"        **/obs-studio-*-windows-arm64.zip
+          # macOS only since 14.9.2026 (Marko: "other releases don't release for now");
+          # the other lines are kept for the day they come back.
           take "OBS2vMix-${VERSION}-macOS-Apple.dmg"          **/obs-studio-*-macos-apple.dmg
           take "OBS2vMix-${VERSION}-macOS-Intel.dmg"          **/obs-studio-*-macos-intel.dmg
-          take "OBS2vMix-${VERSION}-macOS-Apple-dSYMs.tar.xz" **/obs-studio-*-macos-apple-dSYMs.tar.xz
-          take "OBS2vMix-${VERSION}-macOS-Intel-dSYMs.tar.xz" **/obs-studio-*-macos-intel-dSYMs.tar.xz
-          take "OBS2vMix-${VERSION}-Ubuntu-26.04-x86_64.deb"  **/obs-studio-*-x86_64-ubuntu-gnu.deb
-          take "OBS2vMix-${VERSION}-Ubuntu-26.04-x86_64-dbgsym.ddeb" **/obs-studio-*-x86_64-ubuntu-gnu-dbgsym.ddeb
-          take "OBS2vMix-${VERSION}-Linux-x86_64.flatpak"     **/*.flatpak
-          take "OBS2vMix-${VERSION}-Sources.tar.gz"           **/obs-studio-*-sources.tar.gz
+          # take "OBS2vMix-${VERSION}-Windows-x64.zip"          **/obs-studio-*-windows-x64.zip
+          # take "OBS2vMix-${VERSION}-Windows-arm64.zip"        **/obs-studio-*-windows-arm64.zip
+          # take "OBS2vMix-${VERSION}-macOS-Apple-dSYMs.tar.xz" **/obs-studio-*-macos-apple-dSYMs.tar.xz
+          # take "OBS2vMix-${VERSION}-macOS-Intel-dSYMs.tar.xz" **/obs-studio-*-macos-intel-dSYMs.tar.xz
+          # take "OBS2vMix-${VERSION}-Ubuntu-26.04-x86_64.deb"  **/obs-studio-*-x86_64-ubuntu-gnu.deb
+          # take "OBS2vMix-${VERSION}-Ubuntu-26.04-x86_64-dbgsym.ddeb" **/obs-studio-*-x86_64-ubuntu-gnu-dbgsym.ddeb
+          # take "OBS2vMix-${VERSION}-Linux-x86_64.flatpak"     **/*.flatpak
+          # take "OBS2vMix-${VERSION}-Sources.tar.gz"           **/obs-studio-*-sources.tar.gz
           echo '::endgroup::'
 
           ls -la "${out}"
