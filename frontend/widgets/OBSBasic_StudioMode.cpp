@@ -828,6 +828,32 @@ void OBSBasic::SetPreviewProgramMode(bool enabled)
 	UpdateTitleBar();
 }
 
+/* a splitter has no size before the window is shown, so a first-time split
+ * set then goes wrong (0.4.2 gave the strip three quarters); the first real
+ * resize sets the shares, then the filter removes itself */
+class SplitOnFirstResize : public QObject {
+	QSplitter *splitter;
+	double firstShare;
+
+public:
+	SplitOnFirstResize(QSplitter *s, double share) : QObject(s), splitter(s), firstShare(share) {}
+
+protected:
+	bool eventFilter(QObject *obj, QEvent *event) override
+	{
+		if (event->type() == QEvent::Resize) {
+			int total = splitter->orientation() == Qt::Horizontal ? splitter->width() : splitter->height();
+			if (total > 200) {
+				int a = (int)(total * firstShare);
+				splitter->setSizes({a, total - a});
+				splitter->removeEventFilter(this);
+				deleteLater();
+			}
+		}
+		return QObject::eventFilter(obj, event);
+	}
+};
+
 /* the pane sizes survive a restart: obs2vmix/MonitorSplit, obs2vmix/PaneSplit */
 void OBSBasic::SaveSplitter(QSplitter *splitter, const char *key)
 {
@@ -845,10 +871,8 @@ void OBSBasic::RestoreSplitter(QSplitter *splitter, const char *key)
 	if (state && *state && splitter->restoreState(QByteArray::fromBase64(QByteArray(state))))
 		return;
 	/* first time: the monitors share the width; the strip gets a quarter of the height */
-	if (splitter->orientation() == Qt::Horizontal)
-		splitter->setSizes({1000, 1000});
-	else
-		splitter->setSizes({3000, 1000});
+	splitter->installEventFilter(
+		new SplitOnFirstResize(splitter, splitter->orientation() == Qt::Horizontal ? 0.5 : 0.75));
 }
 
 void OBSBasic::RenderProgram(void *data, uint32_t, uint32_t)
