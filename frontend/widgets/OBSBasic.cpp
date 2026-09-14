@@ -1468,7 +1468,7 @@ void OBSBasic::applicationShutdown() noexcept
 	sceneRecorders.clear();
 	delete sceneStrip;
 	delete fxRack;
-	delete seamBar;
+	delete sourceTally;
 	delete programOptions;
 	delete program;
 
