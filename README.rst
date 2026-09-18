@@ -1,3 +1,5 @@
+### [Download the latest build](https://github.com/markoboskoauroville/obs2vmix/releases/latest)
+
 OBS Studio <https://obsproject.com>
 ===================================
 
